@@ -27,16 +27,20 @@ def make_hashes(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verificar_login(usuario, senha):
-    """Verifica as credenciais do usuário com o secrets.toml."""
-    try:
-        users = st.secrets["usuarios"]
-        stored_password_hash = users.get(usuario, {}).get("password")
-        if stored_password_hash and make_hashes(senha) == stored_password_hash:
-            return True
-        return False
-    except KeyError:
-        st.error("Erro: Credenciais de usuário não configuradas ou em formato incorreto no secrets.toml.")
-        return False
+    # Dicionário com os usuários e suas senhas (em hash)
+    usuarios_validos = {
+        'suprimentos': st.secrets["usuarios"]["suprimentos"]["password"],
+        # Se você tiver mais usuários, adicione-os aqui
+        # 'outro_usuario': st.secrets["usuarios"]["outro_usuario"]["password"]
+    }
+    
+    # Gera o hash da senha digitada pelo usuário
+    senha_digitada_hash = hash_password(senha)
+    
+    # Verifica se o usuário existe e se o hash da senha está correto
+    if usuario in usuarios_validos and senha_digitada_hash == usuarios_validos[usuario]:
+        return True
+    return False
 
 def tela_login():
     st.markdown(
@@ -506,4 +510,5 @@ else:
                                         st.success(f"✅ Projeto '{id_selecionado}' atualizado com sucesso!")
                                         carregar_dados.clear()
                                     else:
+
                                         st.info("Nenhuma alteração detectada. O projeto não foi modificado.")

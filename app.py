@@ -28,18 +28,19 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verificar_login(usuario, senha):
-    # Dicionário com os usuários e suas senhas (em hash)
-    usuarios_validos = {
-        'suprimentos': st.secrets["usuarios"]["suprimentos"]["password"],
-        # Se você tiver mais usuários, adicione-os aqui
-        # 'outro_usuario': st.secrets["usuarios"]["outro_usuario"]["password"]
-    }
+    # Acessa a senha do usuário diretamente da seção "usuarios"
+    # Acessa a senha usando a notação de ponto, como definida no secrets.toml
+    senha_salva = st.secrets.get("usuarios", {}).get(f"{usuario}.password")
     
+    # Se o usuário não existir nos segredos, a senha_salva será None
+    if senha_salva is None:
+        return False
+        
     # Gera o hash da senha digitada pelo usuário
     senha_digitada_hash = hash_password(senha)
     
-    # Verifica se o usuário existe e se o hash da senha está correto
-    if usuario in usuarios_validos and senha_digitada_hash == usuarios_validos[usuario]:
+    # Compara o hash gerado com o hash salvo
+    if senha_digitada_hash == senha_salva:
         return True
     return False
 
@@ -513,4 +514,5 @@ else:
                                     else:
 
                                         st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
+
 

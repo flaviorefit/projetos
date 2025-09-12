@@ -1,10 +1,7 @@
 streamlit>=1.30.0
 pymongo>=4.5.0
 pandas>=2.1.0
-streamlit-aggrid
+streamlit-aggrid>=0.4.1
 plotly>=5.20.0
 babel>=2.12.1
 openpyxl>=3.1.2
-hashlib3>=3.0.0
-
-

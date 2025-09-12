@@ -22,7 +22,8 @@ if 'usuario_logado' not in st.session_state:
 # -------------------------
 # Funções de Login
 # -------------------------
-def make_hashes(password):
+# Mude a função make_hashes para hash_password
+def hash_password(password):
     """Gera um hash SHA256 para a senha fornecida."""
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -512,3 +513,4 @@ else:
                                     else:
 
                                         st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
+

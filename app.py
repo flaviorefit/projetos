@@ -1,53 +1,97 @@
 import streamlit as st
-from pymongo import MongoClient
 import pandas as pd
+from pymongo import MongoClient
 from datetime import datetime, date
-import io
-from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode
 import plotly.express as px
-from babel.numbers import format_currency
+from PIL import Image
 import hashlib
+import io
+from st_aggrid import AgGrid, GridOptionsBuilder
 
-# -------------------------
-# Configuração da página
-# -------------------------
+# =======================
+# FUNÇÕES DE FORMATAÇÃO E AUXILIARES
+# =======================
+def formatar_moeda(valor):
+    """Formata um valor numérico como moeda brasileira (R$)."""
+    if pd.isna(valor) or valor is None or valor == "":
+        return "R$ 0,00"
+    valor_float = float(valor)
+    return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def formatar_percentual(valor):
+    """Formata um valor numérico como percentual com duas casas decimais."""
+    if pd.isna(valor) or valor is None or valor == "":
+        return "0,00%"
+    valor_float = float(valor)
+    return f"{valor_float:.2f}%".replace(".", ",")
+
+def parse_currency_input(value_str):
+    if not value_str:
+        return 0.0
+    value_str = str(value_str).replace("R$", "").strip().replace(".", "").replace(",", ".")
+    try:
+        return float(value_str)
+    except (ValueError, TypeError):
+        return 0.0
+
+def to_date(dt):
+    if isinstance(dt, (datetime, pd.Timestamp)):
+        return dt.date()
+    return dt
+
+def calcular_progresso(data_inicio, data_termino):
+    hoje = date.today()
+    if data_inicio is None or data_termino is None:
+        return 0.0
+    data_inicio_date = to_date(data_inicio)
+    data_termino_date = to_date(data_termino)
+    if data_termino_date < data_inicio_date:
+        return 0.0
+    dias_totais = (data_termino_date - data_inicio_date).days
+    if dias_totais <= 0:
+        return 100.0 if hoje >= data_termino_date else 0.0
+    if hoje <= data_inicio_date:
+        return 0.0
+    if hoje >= data_termino_date:
+        return 100.0
+    dias_passados = (hoje - data_inicio_date).days
+    progresso = (dias_passados / dias_totais) * 100
+    return round(progresso, 2)
+
+def convert_df_to_excel(df):
+    """Converte um DataFrame para um arquivo Excel em memória."""
+    output = io.BytesIO()
+    for col in df.select_dtypes(include=['datetimetz']).columns:
+        df[col] = df[col].dt.tz_localize(None)
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Dados')
+    processed_data = output.getvalue()
+    return processed_data
+
+
+# =======================
+# CONFIGURAÇÃO DA PÁGINA
+# =======================
 st.set_page_config(page_title="Gestão de Projetos", layout="wide")
 
-# Inicializa o estado de login
-if 'login_realizado' not in st.session_state:
-    st.session_state.login_realizado = False
-if 'usuario_logado' not in st.session_state:
-    st.session_state.usuario_logado = ""
 
-# -------------------------
-# Funções de Login
-# -------------------------
+# =======================
+# SISTEMA DE LOGIN
+# =======================
 def hash_password(password):
-    """Gera um hash SHA256 para a senha fornecida."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verificar_login(usuario, senha):
-    """Verifica as credenciais do usuário com o secrets.toml."""
     try:
-        # Acessa a senha do usuário usando a estrutura de dicionário aninhado
-        # Ex: st.secrets["usuarios"]["flavio.ribeiro"]["password"]
         senha_salva = st.secrets.get("usuarios", {}).get(usuario, {}).get("password")
-
-        # Se o usuário não existir nos segredos, a senha_salva será None
         if senha_salva is None:
             return False
-            
-        # Gera o hash da senha digitada pelo usuário
         senha_digitada_hash = hash_password(senha)
-        
-        # Compara o hash gerado com o hash salvo
         if senha_digitada_hash == senha_salva:
             return True
         return False
     except KeyError:
-        st.error("Erro: Credenciais de usuário não configuradas ou em formato incorreto no secrets.toml.")
         return False
-
 
 def tela_login():
     st.markdown(
@@ -83,9 +127,31 @@ def logout():
     st.session_state.clear()
     st.rerun()
 
-# -------------------------
-# Conexão MongoDB
-# -------------------------
+# =======================
+# VERIFICAÇÃO DE LOGIN
+# =======================
+if not st.session_state.get("login_realizado"):
+    tela_login()
+    st.stop()
+
+# =======================
+# ESTILO DA BARRA LATERAL
+# =======================
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] { background-color: #c6bed0; }
+    [data-testid="stSidebar"] .stRadio label { color: white !important; }
+    [data-testid="stSidebar"] .streamlit-expanderHeader { color: white !important; }
+    [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stTextInput label, [data-testid="stSidebar"] .stDateInput label { color: #000000 !important; font-weight: bold !important; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ===============================
+# CONEXÃO COM O BANCO DE DADOS
+# ===============================
 @st.cache_resource
 def init_connection():
     try:
@@ -97,28 +163,18 @@ def init_connection():
         st.stop()
 
 client = init_connection()
+db = client[st.secrets["mongo_db"]]
+projetos_col = db[st.secrets["mongo_collection_projetos"]]
 
-def get_db_collection(db_name, collection_name):
-    try:
-        db = client[db_name]
-        collection = db[collection_name]
-        return collection
-    except Exception as e:
-        st.error(f"Erro ao acessar o banco de dados/coleção: {e}")
-        return None
-
-# -------------------------
-# Carregar Dados
-# -------------------------
+# =======================
+# CARREGAR DADOS
+# =======================
 @st.cache_data(ttl=10)
 def carregar_dados():
     try:
-        db_name = st.secrets["mongo_db"]
-        collection_name = st.secrets["mongo_collection_projetos"]
-        collection = get_db_collection(db_name, collection_name)
-        if collection is None:
-            return pd.DataFrame()
-        df = pd.DataFrame(list(collection.find({}, {"_id": 0})))
+        df = pd.DataFrame(list(projetos_col.find()))
+        if '_id' in df.columns:
+            df.drop(columns=['_id'], inplace=True)
         
         colunas_essenciais = ['ID_Projeto', 'Status', 'Empresa', 'Responsável']
         for col in colunas_essenciais:
@@ -133,18 +189,42 @@ def carregar_dados():
         st.error(f"Erro ao carregar dados: {e}")
         return pd.DataFrame()
 
-# -------------------------
-# Funções Auxiliares
-# -------------------------
-@st.cache_data(ttl=60)
+df = carregar_dados()
+
+# =======================
+# LISTAS E FUNÇÕES AUXILIARES
+# =======================
+STATUS = sorted(["A Iniciar", "Em andamento", "Atrasado", "Concluído", "Cancelado", "Stand By"])
+EMPRESAS = sorted([
+    "POSTOS GULF", "76 OIL", "ALPHA FINANCIAL", "ALPHA MATRIZ", "AM GESTÃO FIL", "AM GESTÃO MTZ",
+    "ANDRADE MAGRO", "BCAG SP 0002", "BORLANGE SP", "CARINTHIA RJ 01", "CARINTHIA RJ 03", "CAVALINI",
+    "CHURCHILL", "CREATIVE", "DIRECIONAL ES", "DIRECIONAL FL", "DIRECIONAL MT", "DIRECIONAL SP",
+    "EBTL", "ESTRELA", "EURO", "FAIR ENERGY", "FERA RJ", "FERA SP", "FIT MARINE", "FIT MARINE FILIAL",
+    "FIT MARINE MATRIZ", "FITFILE", "FITPAR", "FLAGLER GO", "FLAGLER RJ", "FLAGLER SP", "FOCUS HUB",
+    "GOOIL", "LOGFIT FILIAL ARUJA", "LOGFIT FILIAL CAXIAS", "LOGFIT FILIAL RJ", "LOGFIT MATRIZ",
+    "LOGFIT RJ 0002", "LOGFIT RJ 0003", "LOGFIT SP 0001", "LOGFIT SP 0006", "LOGFIT TOCANTINS",
+    "MAGRO ADV FIL", "MAGRO ADV MATR", "MANGUINHOS FIL", "MANGUINHOS FILIAL", "MANGUINHOS MATR",
+    "MANGUINHOS MATRIZ", "MAXIMUS", "MAXIMUS TO", "ORNES GESTAO", "PARAISO TO 0001", "PETRO GO 0006",
+    "PETRO MA 0005", "PETRO RJ 0007", "PETRO TO 0001", "PETRO TO 0004", "PORT BRAZIL", "R.A MAGRO ADV",
+    "REFIT FILIAL ALAGOAS", "REFIT FILIAL AMAPA", "REFIT MATRIZ", "RENOMEADA 57", "RENOMEADA 61",
+    "RENOMEADA 62", "RENOMEADA 64", "RENOMEADA 66", "ROAR FL 0003", "ROAR FL 0004", "ROAR MATRIZ",
+    "RODOPETRO CN", "RODOPETRO MTZ", "RODOPETRO RJ DC", "TIGER MATRIZ", "TLIQ", "USINA CIDADANIA",
+    "VAISHIA", "XOROQUE", "XYZ SP", "YIELD FILIAL", "YIELD MATRIZ"
+])
+Empresas_selecione = ["Selecione"] + EMPRESAS
+COMPRADOR_RESPONSAVEL = sorted([
+    "TATIANE", "LILIAN", "ISAAC", "DIEGO", "LUCAS NOGUEIRA", "GUILHERME", "JESSICA", "CLAUDIO", "NORMA",
+    "TERESA", "BRUNO MUZI", "ANDERSON", "SIMONE", "JOÃO HENRIQUE", "ANA PAULA", "RENATA", "LUCAS MOREIRA",
+    "MARINA", "LUIZ PAULO", "EMERSON", "BRUNO ARAUJO", "JOSANE", "MAURO", "MARIA CLARA", "JOÃO SANTA RITA",
+    "MILENA SANT", "JULIA", "LEANDRO", "ALICE", "SUELLEN", "JENNIFER", "VANESSA"
+])
+Comprador_selecione = ["Selecione"] + COMPRADOR_RESPONSAVEL
+
 def gerar_id_otimizado():
-    db_name = st.secrets["mongo_db"]
-    collection_name = st.secrets["mongo_collection_projetos"]
-    collection = get_db_collection(db_name, collection_name)
-    if collection is None:
+    if projetos_col.count_documents({}) == 0:
         return "PROJ001"
     
-    ultimo_projeto = collection.find_one(sort=[("ID_Projeto", -1)])
+    ultimo_projeto = projetos_col.find_one(sort=[("ID_Projeto", -1)])
     if not ultimo_projeto:
         return "PROJ001"
     ultimo_id = ultimo_projeto.get("ID_Projeto", "PROJ000")
@@ -154,367 +234,391 @@ def gerar_id_otimizado():
     except (ValueError, TypeError):
         return "PROJ001"
 
-def salvar_projeto_mongo(projeto):
-    db_name = st.secrets["mongo_db"]
-    collection_name = st.secrets["mongo_collection_projetos"]
-    collection = get_db_collection(db_name, collection_name)
-    if collection is None:
-        return False
-    projeto["Data_Inicio"] = datetime.combine(projeto["Data_Inicio"], datetime.min.time())
-    projeto["Data_Termino"] = datetime.combine(projeto["Data_Termino"], datetime.min.time())
-    collection.insert_one(projeto)
-    return True
-
-def parse_currency_input(value_str):
-    if not value_str:
-        return 0.0
-    value_str = str(value_str).replace("R$", "").strip().replace(".", "").replace(",", ".")
-    try:
-        return float(value_str)
-    except (ValueError, TypeError):
-        return 0.0
-
-def to_date(dt):
-    if isinstance(dt, (datetime, pd.Timestamp)):
-        return dt.date()
-    return dt
-
-def calcular_progresso(data_inicio, data_termino):
-    hoje = date.today()
-    if data_inicio is None or data_termino is None:
-        return 0.0
-    data_inicio_date = to_date(data_inicio)
-    data_termino_date = to_date(data_termino)
-    if data_termino_date < data_inicio_date:
-        return 0.0
-    dias_totais = (data_termino_date - data_inicio_date).days
-    if dias_totais <= 0:
-        return 100.0 if hoje >= data_termino_date else 0.0
-    if hoje <= data_inicio_date:
-        return 0.0
-    if hoje >= data_termino_date:
-        return 100.0
-    dias_passados = (hoje - data_inicio_date).days
-    progresso = (dias_passados / dias_totais) * 100
-    return round(progresso, 2)
-
-def exportar_excel(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Projetos")
-    processed_data = output.getvalue()
-    return processed_data
-
-# -------------------------
-# Início do aplicativo
-# -------------------------
-if not st.session_state.login_realizado:
-    tela_login()
-    st.stop()
-else:
-    st.sidebar.title("Bem-vindo(a), " + st.session_state.usuario_logado)
-    st.sidebar.title("Menu")
+# =======================
+# FUNÇÕES DE FILTRO
+# =======================
+def aplicar_filtros_projetos(df_base):
+    """
+    Cria os widgets de filtro na barra lateral.
+    """
+    status_opcoes = sorted(df_base["Status"].dropna().unique().tolist())
+    empresas_opcoes = sorted(df_base["Empresa"].dropna().unique().tolist())
+    responsaveis_opcoes = sorted(df_base["Responsável"].dropna().unique().tolist())
     
-    if st.sidebar.button("Sair"):
-        logout()
-
-    STATUS = sorted(["A Iniciar", "Em andamento", "Atrasado", "Concluído", "Cancelado", "Stand By"])
-    EMPRESAS = sorted([
-        "POSTOS GULF", "76 OIL", "ALPHA FINANCIAL", "ALPHA MATRIZ", "AM GESTÃO FIL", "AM GESTÃO MTZ",
-        "ANDRADE MAGRO", "BCAG SP 0002", "BORLANGE SP", "CARINTHIA RJ 01", "CARINTHIA RJ 03", "CAVALINI",
-        "CHURCHILL", "CREATIVE", "DIRECIONAL ES", "DIRECIONAL FL", "DIRECIONAL MT", "DIRECIONAL SP",
-        "EBTL", "ESTRELA", "EURO", "FAIR ENERGY", "FERA RJ", "FERA SP", "FIT MARINE", "FIT MARINE FILIAL",
-        "FIT MARINE MATRIZ", "FITFILE", "FITPAR", "FLAGLER GO", "FLAGLER RJ", "FLAGLER SP", "FOCUS HUB",
-        "GOOIL", "LOGFIT FILIAL ARUJA", "LOGFIT FILIAL CAXIAS", "LOGFIT FILIAL RJ", "LOGFIT MATRIZ",
-        "LOGFIT RJ 0002", "LOGFIT RJ 0003", "LOGFIT SP 0001", "LOGFIT SP 0006", "LOGFIT TOCANTINS",
-        "MAGRO ADV FIL", "MAGRO ADV MATR", "MANGUINHOS FIL", "MANGUINHOS FILIAL", "MANGUINHOS MATR",
-        "MANGUINHOS MATRIZ", "MAXIMUS", "MAXIMUS TO", "ORNES GESTAO", "PARAISO TO 0001", "PETRO GO 0006",
-        "PETRO MA 0005", "PETRO RJ 0007", "PETRO TO 0001", "PETRO TO 0004", "PORT BRAZIL", "R.A MAGRO ADV",
-        "REFIT FILIAL ALAGOAS", "REFIT FILIAL AMAPA", "REFIT MATRIZ", "RENOMEADA 57", "RENOMEADA 61",
-        "RENOMEADA 62", "RENOMEADA 64", "RENOMEADA 66", "ROAR FL 0003", "ROAR FL 0004", "ROAR MATRIZ",
-        "RODOPETRO CN", "RODOPETRO MTZ", "RODOPETRO RJ DC", "TIGER MATRIZ", "TLIQ", "USINA CIDADANIA",
-        "VAISHIA", "XOROQUE", "XYZ SP", "YIELD FILIAL", "YIELD MATRIZ"
-    ])
-    Empresas_selecione = ["Selecione"] + EMPRESAS
-    COMPRADOR_RESPONSAVEL = sorted([
-        "TATIANE", "LILIAN", "ISAAC", "DIEGO", "LUCAS NOGUEIRA", "GUILHERME", "JESSICA", "CLAUDIO", "NORMA",
-        "TERESA", "BRUNO MUZI", "ANDERSON", "SIMONE", "JOÃO HENRIQUE", "ANA PAULA", "RENATA", "LUCAS MOREIRA",
-        "MARINA", "LUIZ PAULO", "EMERSON", "BRUNO ARAUJO", "JOSANE", "MAURO", "MARIA CLARA", "JOÃO SANTA RITA",
-        "MILENA SANT", "JULIA", "LEANDRO", "ALICE", "SUELLEN", "JENNIFER", "VANESSA"
-    ])
-    Comprador_selecione = ["Selecione"] + COMPRADOR_RESPONSAVEL
-
-    menu = st.sidebar.radio("Menu", ["Cadastrar Projeto", "Listar Projetos", "Editar Projeto"])
+    filtro_status = st.multiselect("Filtrar por Status", options=status_opcoes, key="filtro_status")
+    filtro_empresa = st.multiselect("Filtrar por Empresa", options=empresas_opcoes, key="filtro_empresa")
+    filtro_responsavel = st.multiselect("Filtrar por Responsável", options=responsaveis_opcoes, key="filtro_responsavel")
     
-    if menu == "Cadastrar Projeto":
-        st.subheader("📝 Cadastro de Projeto")
-        col_check_orc, col_check_base = st.columns(2)
-        with col_check_orc:
-            tem_orcamento = st.checkbox("Tem Orçamento?")
-        with col_check_base:
-            linha_base = st.checkbox("Tem Baseline?")
+    df_filtrado = df_base.copy()
+    
+    if filtro_status:
+        df_filtrado = df_filtrado[df_filtrado["Status"].isin(filtro_status)]
+    if filtro_empresa:
+        df_filtrado = df_filtrado[df_filtrado["Empresa"].isin(filtro_empresa)]
+    if filtro_responsavel:
+        df_filtrado = df_filtrado[df_filtrado["Responsável"].isin(filtro_responsavel)]
         
-        exibir_melhor_proposta = tem_orcamento or linha_base
-        orcamento, melhor_proposta, saving_r, saving_percent, baseline, ce_baseline, percent_baseline, preco_inicial, preco_final, ce_r, percent_ce = [0] * 11
+    return df_filtrado
 
-        with st.form("form_cadastro"):
-            st.write("### Informações dos Projetos")
-            caminho_pasta = st.text_input("Caminho da Pasta")
-            col_pedido, col_contrato = st.columns(2)
-            with col_pedido:
-                pedido = st.text_input("Número do Pedido")
-            with col_contrato:
-                id_contrato = st.text_input("ID de Contrato")
+# =======================
+# LÓGICA PRINCIPAL DO APP
+# =======================
+aba = st.sidebar.radio(
+    "Escolha uma opção:",
+    ["Dashboard", "Listar Projetos", "Cadastrar Projeto", "Editar/Excluir"]
+)
 
-            col1, col2 = st.columns(2)
-            with col1:
-                area_setor = st.text_input("Setor/Área")
-            with col2:
-                empresa = st.selectbox("Empresa", Empresas_selecione)
-            col3, col4 = st.columns(2)
-            with col3:
-                categoria = st.text_input("Categoria")
-            with col4:
-                responsavel = st.selectbox("Responsável", Comprador_selecione)
-            atividade = st.text_area("Atividade/Descrição")
+# CORREÇÃO: Filtros são aplicados e o df_filtrado é criado ANTES da lógica das abas
+with st.sidebar.expander("🎯 Filtros Gerais", expanded=True):
+    df_filtrado = aplicar_filtros_projetos(df)
 
-            st.markdown("---")
-            st.write("### Detalhes Financeiros")
+# =======================
+# RENDERIZAÇÃO DAS ABAS
+# =======================
+if aba == "Dashboard":
+    st.header("📊 Dashboard de Projetos")
+    
+    if not df_filtrado.empty:
+        # Indicadores Chave
+        qtd_total = len(df_filtrado)
+        qtd_concluidos = len(df_filtrado[df_filtrado["Status"] == "Concluído"])
+        qtd_andamento = len(df_filtrado[df_filtrado["Status"] == "Em andamento"])
+        qtd_atrasados = len(df_filtrado[df_filtrado["Status"] == "Atrasado"])
+        
+        # Salvings e Custos
+        total_saving = pd.to_numeric(df_filtrado["Saving_R$"], errors='coerce').sum()
+        total_ce_baseline = pd.to_numeric(df_filtrado["CE_Baseline_R$"], errors='coerce').sum()
+        total_ce_geral = pd.to_numeric(df_filtrado["CE_R$"], errors='coerce').sum()
+        
+        def format_valor_kpi(valor):
+            if pd.isna(valor) or valor == 0: return "R$ 0,00"
+            valor = float(valor)
+            if valor >= 1_000_000: return f"R$ {valor/1_000_000:,.2f}M".replace('.', '#').replace(',', '.').replace('#', ',')
+            if valor >= 1_000: return f"R$ {valor/1_000:,.2f}K".replace('.', '#').replace(',', '.').replace('#', ',')
+            return f"R$ {valor:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
 
-            if tem_orcamento:
-                orcamento_str = st.text_input("Budget (R$)", value="0,00", key="orcamento_input_cadastro")
-                orcamento = parse_currency_input(orcamento_str)
-            if linha_base:
-                baseline_str = st.text_input("Baseline (R$)", value="0,00", key="baseline_input_cadastro")
-                baseline = parse_currency_input(baseline_str)
-            if exibir_melhor_proposta:
-                melhor_proposta_str = st.text_input("Melhor Proposta (R$)", value="0,00", key="proposta_input_cadastro")
-                melhor_proposta = parse_currency_input(melhor_proposta_str)
-            if not (tem_orcamento or linha_base):
-                preco_inicial_str = st.text_input("Preço Inicial (R$)", value="0,00", key="preco_inicial_input_cadastro")
-                preco_inicial = parse_currency_input(preco_inicial_str)
-                preco_final_str = st.text_input("Preço Final (R$)", value="0,00", key="preco_final_input_cadastro")
-                preco_final = parse_currency_input(preco_final_str)
-                ce_r = preco_inicial - preco_final
-                percent_ce = (ce_r / preco_inicial) * 100 if preco_inicial != 0 else 0
-                st.markdown(f"**C.E R$:** {format_currency(ce_r, 'BRL', locale='pt_BR')}")
-                st.markdown(f"**% C.E:** {percent_ce:.2f}%")
+        card_col1, card_col2, card_col3, card_col4 = st.columns(4)
+        
+        cards = [
+            ("Projetos Totais", qtd_total, "#002776"),
+            ("Concluídos", qtd_concluidos, "#2B9348"),
+            ("Em Andamento", qtd_andamento, "#2F80ED"),
+            ("Atrasados", qtd_atrasados, "#D90429")
+        ]
+        
+        for col, (titulo, valor, cor) in zip([card_col1, card_col2, card_col3, card_col4], cards):
+            col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
 
-            if tem_orcamento:
-                saving_r = orcamento - melhor_proposta
-                saving_percent = (saving_r / orcamento) * 100 if orcamento != 0 else 0
-                st.markdown(f"**Saving R$:** {format_currency(saving_r, 'BRL', locale='pt_BR')}")
-                st.markdown(f"**% Saving:** {saving_percent:.2f}%")
-            if linha_base:
-                ce_baseline = baseline - melhor_proposta
-                percent_baseline = (ce_baseline / baseline) * 100 if baseline != 0 else 0
-                st.markdown(f"**C.E Baseline R$:** {format_currency(ce_baseline, 'BRL', locale='pt_BR')}")
-                st.markdown(f"**% Baseline:** {percent_baseline:.2f}%")
-
-            st.markdown("---")
-            st.write("### Status e Datas")
-            col_status, col_data_inicio, col_data_termino = st.columns(3)
-            with col_status:
-                status = st.selectbox("Status", STATUS)
-            with col_data_inicio:
-                data_inicio = st.date_input("Data de Início", value=date.today(), format="DD/MM/YYYY")
-            with col_data_termino:
-                data_termino = st.date_input("Data de Término", value=date.today(), format="DD/MM/YYYY")
-
-            submit = st.form_submit_button("Salvar Projeto")
-            if submit:
-                if data_termino < data_inicio:
-                    st.error("A data de término não pode ser anterior à data de início.")
-                else:
-                    id_projeto = gerar_id_otimizado()
-                    projeto = {
-                        "ID_Projeto": id_projeto, "Link_da_Pasta": caminho_pasta, "Pedido": pedido,
-                        "ID_Contrato": id_contrato, "Área_Setor": area_setor, "Empresa": empresa,
-                        "Categoria": categoria, "Atividades_Descrição": atividade, "Responsável": responsavel,
-                        "Tem_Orçamento": tem_orcamento, "Linha_de_base": linha_base, "Orçamento": orcamento,
-                        "Baseline": baseline, "Melhor_Proposta": melhor_proposta, "Preço_Inicial": preco_inicial,
-                        "Preço_Final": preco_final, "Saving_R$": saving_r, "Saving_Percent": saving_percent,
-                        "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
-                        "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
-                        "Data_Inicio": data_inicio, "Data_Termino": data_termino,
-                        "Dias": (data_termino - data_inicio).days,
-                        "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
-                    }
-                    if salvar_projeto_mongo(projeto):
-                        st.success(f"✅ Projeto salvo! Código: {id_projeto}")
-                        carregar_dados.clear()
-                        gerar_id_otimizado.clear()
-
-    elif menu == "Listar Projetos":
-        st.subheader("📋 Listagem de Projetos")
-        df = carregar_dados()
-        if not df.empty:
-            if "Data_Inicio" in df.columns:
-                df["Data_Inicio"] = pd.to_datetime(df["Data_Inicio"], errors="coerce").dt.strftime('%d/%m/%Y')
-            if "Data_Termino" in df.columns:
-                df["Data_Termino"] = pd.to_datetime(df["Data_Termino"], errors="coerce").dt.strftime('%d/%m/%Y')
-            if "Progresso_Porcentagem" in df.columns:
-                df["Progresso_Porcentagem"] = df["Progresso_Porcentagem"].round(2)
-            currency_cols = ["Orçamento", "Baseline", "Melhor_Proposta", "Preço_Inicial", "Preço_Final", "Saving_R$", "CE_Baseline_R$", "CE_R$"]
-            for col in currency_cols:
-                if col in df.columns:
-                    df[col] = df[col].astype(float)
-            col1, col2 = st.columns(2)
-            with col1:
-                filtro_status = st.selectbox("Filtrar por Status", ["Todos"] + sorted(df["Status"].dropna().unique().tolist()), index=0)
-            with col2:
-                filtro_empresa = st.selectbox("Filtrar por Empresa", ["Todos"] + sorted(df["Empresa"].dropna().unique().tolist()), index=0)
-            df_filtrado = df.copy()
-            if filtro_status != "Todos":
-                df_filtrado = df_filtrado[df_filtrado["Status"] == filtro_status]
-            if filtro_empresa != "Todos":
-                df_filtrado = df_filtrado[df_filtrado["Empresa"] == filtro_empresa]
+        st.markdown("<br>", unsafe_allow_html=True)
+        card_col5, card_col6, card_col7 = st.columns(3)
+        
+        cards_financeiro = [
+            ("Total Saving (R$)", format_valor_kpi(total_saving), "#6A4C93"),
+            ("Total C.E. Baseline (R$)", format_valor_kpi(total_ce_baseline), "#F2994A"),
+            ("Total C.E. Geral (R$)", format_valor_kpi(total_ce_geral), "#17a2b8")
+        ]
+        
+        for col, (titulo, valor, cor) in zip([card_col5, card_col6, card_col7], cards_financeiro):
+            col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col_graf1, col_graf2 = st.columns(2)
+        with col_graf1:
             resumo_status = df_filtrado['Status'].value_counts().reset_index()
             resumo_status.columns = ['Status', 'Quantidade']
             if not resumo_status.empty:
-                fig_status = px.bar(
-                    resumo_status, x='Status', y='Quantidade', text='Quantidade', color='Status',
-                    color_discrete_map={
-                        "A Iniciar": "#F2C94C", "Em andamento": "#2F80ED", "Atrasado": "#D90429",
-                        "Concluído": "#27AE60", "Cancelado": "#9B51E0", "Stand By": "#F2994A"
-                    }, title="Distribuição de Projetos por Status"
-                )
-                fig_status.update_traces(textposition='outside')
+                fig_status = px.pie(resumo_status, values='Quantidade', names='Status', title='Distribuição de Projetos por Status',
+                                    color_discrete_map={"A Iniciar": "#F2C94C", "Em andamento": "#2F80ED", "Atrasado": "#D90429", "Concluído": "#27AE60", "Cancelado": "#9B51E0", "Stand By": "#F2994A"})
+                fig_status.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_status, use_container_width=True)
             else:
-                st.info("Nenhum projeto encontrado com os filtros selecionados.")
-            gb = GridOptionsBuilder.from_dataframe(df_filtrado)
-            gb.configure_default_column(editable=False, resizable=True, wrapText=True, autoHeight=True)
-            for col in currency_cols:
-                if col in df_filtrado.columns:
-                    gb.configure_column(col, type=["numericColumn"], valueFormatter="value != null ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''")
-            gb.configure_column("ID_Projeto", header_name="Código", pinned="left", width=120)
-            gb.configure_column("Progresso_Porcentagem", header_name="Progresso (%)", type=["numericColumn"], width=120)
-            gb.configure_grid_options(domLayout='normal')
-            gridOptions = gb.build()
-            AgGrid(
-                df_filtrado, gridOptions=gridOptions, enable_enterprise_modules=False,
-                height=400, fit_columns_on_grid_load=False, reload_data=True
-            )
-            if not df_filtrado.empty:
+                st.info("Nenhum projeto encontrado para o gráfico de Status.")
+
+        with col_graf2:
+            df_saving = df_filtrado.groupby("Responsável")["Saving_R$"].sum().reset_index().sort_values("Saving_R$", ascending=False)
+            df_saving = df_saving[df_saving["Saving_R$"] > 0]
+            if not df_saving.empty:
+                fig_saving = px.bar(df_saving, x="Responsável", y="Saving_R$", title="Saving por Responsável",
+                                    color_discrete_sequence=px.colors.qualitative.Plotly)
+                fig_saving.update_traces(texttemplate='R$ %{y:,.2s}', textposition='outside')
+                fig_saving.update_layout(uniformtext_minsize=8, uniformtext_mode='hide', xaxis_title="Responsável", yaxis_title="Saving (R$)")
+                st.plotly_chart(fig_saving, use_container_width=True)
+            else:
+                st.info("Nenhum saving registrado para o gráfico.")
+
+        st.markdown("---")
+        st.subheader("Tabela de Dados do Dashboard")
+        st.dataframe(df_filtrado, use_container_width=True)
+        st.download_button("📥 Download como Excel", convert_df_to_excel(df_filtrado), "dashboard_projetos.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else:
+        st.info("Nenhum projeto encontrado com os filtros aplicados.")
+
+elif aba == "Listar Projetos":
+    st.subheader("📋 Listagem de Projetos")
+    if not df_filtrado.empty:
+        df_filtrado["Progresso_Porcentagem"] = df_filtrado.apply(
+            lambda row: calcular_progresso(row.get('Data_Inicio'), row.get('Data_Termino')), axis=1
+        )
+        currency_cols = ["Orçamento", "Baseline", "Melhor_Proposta", "Preço_Inicial", "Preço_Final", "Saving_R$", "CE_Baseline_R$", "CE_R$"]
+        for col in currency_cols:
+            if col in df_filtrado.columns:
+                df_filtrado[col] = pd.to_numeric(df_filtrado[col], errors='coerce').fillna(0)
+
+        gb = GridOptionsBuilder.from_dataframe(df_filtrado)
+        gb.configure_default_column(editable=False, resizable=True, wrapText=True, autoHeight=True)
+        
+        for col in currency_cols:
+            if col in df_filtrado.columns:
+                gb.configure_column(col, type=["numericColumn"], valueFormatter="value != null ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''")
+        
+        gb.configure_column("ID_Projeto", header_name="Código", pinned="left", width=120)
+        gb.configure_column("Progresso_Porcentagem", header_name="Progresso (%)", type=["numericColumn"], width=120, valueFormatter="data.Progresso_Porcentagem.toFixed(2) + '%'")
+        
+        gb.configure_grid_options(domLayout='normal')
+        gridOptions = gb.build()
+        
+        AgGrid(
+            df_filtrado, gridOptions=gridOptions, enable_enterprise_modules=False,
+            height=400, fit_columns_on_grid_load=True, reload_data=True
+        )
+        
+    else:
+        st.info("Nenhum projeto encontrado com os filtros aplicados.")
+
+elif aba == "Cadastrar Projeto":
+    st.subheader("📝 Cadastro de Projeto")
+    col_check_orc, col_check_base = st.columns(2)
+    with col_check_orc:
+        tem_orcamento = st.checkbox("Tem Orçamento?")
+    with col_check_base:
+        linha_base = st.checkbox("Tem Baseline?")
+    
+    exibir_melhor_proposta = tem_orcamento or linha_base
+    orcamento, melhor_proposta, saving_r, saving_percent, baseline, ce_baseline, percent_baseline, preco_inicial, preco_final, ce_r, percent_ce = [0] * 11
+
+    with st.form("form_cadastro"):
+        st.write("### Informações dos Projetos")
+        caminho_pasta = st.text_input("Caminho da Pasta")
+        col_pedido, col_contrato = st.columns(2)
+        with col_pedido:
+            pedido = st.text_input("Número do Pedido")
+        with col_contrato:
+            id_contrato = st.text_input("ID de Contrato")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            area_setor = st.text_input("Setor/Área")
+        with col2:
+            empresa = st.selectbox("Empresa", Empresas_selecione)
+        col3, col4 = st.columns(2)
+        with col3:
+            categoria = st.text_input("Categoria")
+        with col4:
+            responsavel = st.selectbox("Responsável", Comprador_selecione)
+        atividade = st.text_area("Atividade/Descrição")
+
+        st.markdown("---")
+        st.write("### Detalhes Financeiros")
+
+        if tem_orcamento:
+            orcamento_str = st.text_input("Budget (R$)", value="0,00", key="orcamento_input_cadastro")
+            orcamento = parse_currency_input(orcamento_str)
+        if linha_base:
+            baseline_str = st.text_input("Baseline (R$)", value="0,00", key="baseline_input_cadastro")
+            baseline = parse_currency_input(baseline_str)
+        if exibir_melhor_proposta:
+            melhor_proposta_str = st.text_input("Melhor Proposta (R$)", value="0,00", key="proposta_input_cadastro")
+            melhor_proposta = parse_currency_input(melhor_proposta_str)
+        if not (tem_orcamento or linha_base):
+            preco_inicial_str = st.text_input("Preço Inicial (R$)", value="0,00", key="preco_inicial_input_cadastro")
+            preco_inicial = parse_currency_input(preco_inicial_str)
+            preco_final_str = st.text_input("Preço Final (R$)", value="0,00", key="preco_final_input_cadastro")
+            preco_final = parse_currency_input(preco_final_str)
+            ce_r = preco_inicial - preco_final
+            percent_ce = (ce_r / preco_inicial) * 100 if preco_inicial != 0 else 0
+            st.markdown(f"**C.E R$:** {formatar_moeda(ce_r)}")
+            st.markdown(f"**% C.E:** {formatar_percentual(percent_ce)}")
+
+        if tem_orcamento:
+            saving_r = orcamento - melhor_proposta
+            saving_percent = (saving_r / orcamento) * 100 if orcamento != 0 else 0
+            st.markdown(f"**Saving R$:** {formatar_moeda(saving_r)}")
+            st.markdown(f"**% Saving:** {formatar_percentual(saving_percent)}")
+        if linha_base:
+            ce_baseline = baseline - melhor_proposta
+            percent_baseline = (ce_baseline / baseline) * 100 if baseline != 0 else 0
+            st.markdown(f"**C.E Baseline R$:** {formatar_moeda(ce_baseline)}")
+            st.markdown(f"**% Baseline:** {formatar_percentual(percent_baseline)}")
+
+        st.markdown("---")
+        st.write("### Status e Datas")
+        col_status, col_data_inicio, col_data_termino = st.columns(3)
+        with col_status:
+            status = st.selectbox("Status", STATUS)
+        with col_data_inicio:
+            data_inicio = st.date_input("Data de Início", value=date.today(), format="DD/MM/YYYY")
+        with col_data_termino:
+            data_termino = st.date_input("Data de Término", value=date.today(), format="DD/MM/YYYY")
+
+        submit = st.form_submit_button("Salvar Projeto")
+        if submit:
+            if data_termino < data_inicio:
+                st.error("A data de término não pode ser anterior à data de início.")
+            else:
+                id_projeto = gerar_id_otimizado()
+                projeto = {
+                    "ID_Projeto": id_projeto, "Link_da_Pasta": caminho_pasta, "Pedido": pedido,
+                    "ID_Contrato": id_contrato, "Área_Setor": area_setor, "Empresa": empresa,
+                    "Categoria": categoria, "Atividades_Descrição": atividade, "Responsável": responsavel,
+                    "Tem_Orçamento": tem_orcamento, "Linha_de_base": linha_base, "Orçamento": orcamento,
+                    "Baseline": baseline, "Melhor_Proposta": melhor_proposta, "Preço_Inicial": preco_inicial,
+                    "Preço_Final": preco_final, "Saving_R$": saving_r, "Saving_Percent": saving_percent,
+                    "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
+                    "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
+                    "Data_Inicio": data_inicio, "Data_Termino": data_termino,
+                    "Dias": (data_termino - data_inicio).days,
+                    "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
+                }
+                try:
+                    projetos_col.insert_one(projeto)
+                    st.success(f"✅ Projeto salvo! Código: {id_projeto}")
+                    carregar_dados.clear()
+                    gerar_id_otimizado.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar projeto: {e}")
+
+elif aba == "Editar/Excluir":
+    st.subheader("✍️ Editar ou Excluir Projeto")
+
+    if df.empty:
+        st.warning("Nenhum projeto disponível para editar.")
+        st.stop()
+
+    projetos_disponiveis = sorted(df["ID_Projeto"].dropna().unique())
+    if not projetos_disponiveis:
+        st.warning("Nenhum projeto com ID válido encontrado.")
+        st.stop()
+
+    projeto_selecionado = st.selectbox("Selecione um projeto para editar", ["Selecione..."] + projetos_disponiveis)
+    
+    if projeto_selecionado != "Selecione...":
+        projeto_existente = projetos_col.find_one({"ID_Projeto": projeto_selecionado})
+        
+        if projeto_existente:
+            with st.form("form_edicao"):
+                st.write("### Informações Gerais")
+                caminho_pasta = st.text_input("Caminho da Pasta", value=projeto_existente.get("Link_da_Pasta", ""))
+                col_pedido, col_contrato = st.columns(2)
+                with col_pedido:
+                    pedido = st.text_input("Número do Pedido", value=projeto_existente.get("Pedido", ""))
+                with col_contrato:
+                    id_contrato = st.text_input("ID de Contrato", value=projeto_existente.get("ID_Contrato", ""))
                 col1, col2 = st.columns(2)
                 with col1:
-                    csv = df_filtrado.to_csv(index=False).encode("utf-8")
-                    st.download_button("⬇️ Exportar CSV", csv, "projetos.csv", "text/csv")
+                    area_setor = st.text_input("Setor/Área", value=projeto_existente.get("Área_Setor", ""))
                 with col2:
-                    excel = exportar_excel(df_filtrado)
-                    st.download_button("⬇️ Exportar Excel", excel, "projetos.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.info("Nenhum projeto cadastrado.")
-    elif menu == "Editar Projeto":
-        st.subheader("✍️ Editar Projeto")
-        collection = get_db_collection(st.secrets["mongo_db"], st.secrets["mongo_collection_projetos"])
-        if collection is None:
-            st.error("Não foi possível conectar ao banco de dados para edição.")
-        else:
-            df_projetos = carregar_dados()
-            if df_projetos.empty:
-                st.info("Nenhum projeto encontrado para edição.")
-            else:
-                lista_projetos = ["Selecione..."] + [f"{row['ID_Projeto']} - {row.get('Pedido', 'Sem Pedido')}" for _, row in df_projetos.iterrows()]
-                projeto_selecionado = st.selectbox("Selecione um projeto para editar", lista_projetos)
-                if projeto_selecionado != "Selecione...":
-                    id_selecionado = projeto_selecionado.split(" - ")[0]
-                    projeto_existente = collection.find_one({"ID_Projeto": id_selecionado})
-                    if projeto_existente:
-                        with st.form("form_edicao"):
-                            st.write("### Informações Gerais")
-                            caminho_pasta = st.text_input("Caminho da Pasta", value=projeto_existente.get("Link_da_Pasta", ""))
-                            col_pedido, col_contrato = st.columns(2)
-                            with col_pedido:
-                                pedido = st.text_input("Número do Pedido", value=projeto_existente.get("Pedido", ""))
-                            with col_contrato:
-                                id_contrato = st.text_input("ID de Contrato", value=projeto_existente.get("ID_Contrato", ""))
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                area_setor = st.text_input("Setor/Área", value=projeto_existente.get("Área_Setor", ""))
-                            with col2:
-                                empresa_idx = Empresas_selecione.index(projeto_existente.get("Empresa", "Selecione")) if projeto_existente.get("Empresa") in Empresas_selecione else 0
-                                empresa = st.selectbox("Empresa", Empresas_selecione, index=empresa_idx)
-                            col3, col4 = st.columns(2)
-                            with col3:
-                                categoria = st.text_input("Categoria", value=projeto_existente.get("Categoria", ""))
-                            with col4:
-                                resp_idx = Comprador_selecione.index(projeto_existente.get("Responsável", "Selecione")) if projeto_existente.get("Responsável") in Comprador_selecione else 0
-                                responsavel = st.selectbox("Responsável", Comprador_selecione, index=resp_idx)
-                            atividade = st.text_area("Atividade/Descrição", value=projeto_existente.get("Atividades_Descrição", ""))
-                            st.markdown("---")
-                            st.write("### Detalhes Financeiros")
-                            tem_orcamento = st.checkbox("Tem Orçamento?", value=projeto_existente.get("Tem_Orçamento", False))
-                            linha_base = st.checkbox("Tem Baseline?", value=projeto_existente.get("Linha_de_base", False))
-                            orcamento, baseline, melhor_proposta, preco_inicial, preco_final = 0.0, 0.0, 0.0, 0.0, 0.0
-                            if tem_orcamento:
-                                orcamento_val_str = f'{projeto_existente.get("Orçamento", 0):,.2f}'.replace('.', '#').replace(',', '.').replace('#', ',')
-                                orcamento_str = st.text_input("Budget (R$)", value=orcamento_val_str)
-                                orcamento = parse_currency_input(orcamento_str)
-                            if linha_base:
-                                baseline_val_str = f'{projeto_existente.get("Baseline", 0):,.2f}'.replace('.', '#').replace(',', '.').replace('#', ',')
-                                baseline_str = st.text_input("Baseline (R$)", value=baseline_val_str)
-                                baseline = parse_currency_input(baseline_str)
-                            if tem_orcamento or linha_base:
-                                melhor_proposta_val_str = f'{projeto_existente.get("Melhor_Proposta", 0):,.2f}'.replace('.', '#').replace(',', '.').replace('#', ',')
-                                melhor_proposta_str = st.text_input("Melhor Proposta (R$)", value=melhor_proposta_val_str)
-                                melhor_proposta = parse_currency_input(melhor_proposta_str)
-                            if not (tem_orcamento or linha_base):
-                                preco_inicial_val_str = f'{projeto_existente.get("Preço_Inicial", 0):,.2f}'.replace('.', '#').replace(',', '.').replace('#', ',')
-                                preco_inicial_str = st.text_input("Preço Inicial (R$)", value=preco_inicial_val_str)
-                                preco_inicial = parse_currency_input(preco_inicial_str)
-                                preco_final_val_str = f'{projeto_existente.get("Preço_Final", 0):,.2f}'.replace('.', '#').replace(',', '.').replace('#', ',')
-                                preco_final_str = st.text_input("Preço Final (R$)", value=preco_final_val_str)
-                                preco_final = parse_currency_input(preco_final_str)
-                            saving_r = orcamento - melhor_proposta if tem_orcamento else 0
-                            saving_percent = (saving_r / orcamento) * 100 if tem_orcamento and orcamento != 0 else 0
-                            ce_baseline = baseline - melhor_proposta if linha_base else 0
-                            percent_baseline = (ce_baseline / baseline) * 100 if linha_base and baseline != 0 else 0
-                            ce_r = preco_inicial - preco_final if not (tem_orcamento or linha_base) else 0
-                            percent_ce = (ce_r / preco_inicial) * 100 if not (tem_orcamento or linha_base) and preco_inicial != 0 else 0
-                            if tem_orcamento:
-                                st.markdown(f"**Saving R$:** {format_currency(saving_r, 'BRL', locale='pt_BR')}")
-                                st.markdown(f"**% Saving:** {saving_percent:.2f}%")
-                            if linha_base:
-                                st.markdown(f"**C.E Baseline R$:** {format_currency(ce_baseline, 'BRL', locale='pt_BR')}")
-                                st.markdown(f"**% Baseline:** {percent_baseline:.2f}%")
-                            if not (tem_orcamento or linha_base):
-                                st.markdown(f"**C.E R$:** {format_currency(ce_r, 'BRL', locale='pt_BR')}")
-                                st.markdown(f"**% C.E:** {percent_ce:.2f}%")
-                            st.markdown("---")
-                            st.write("### Status e Datas")
-                            col_status, col_data_inicio, col_data_termino = st.columns(3)
-                            with col_status:
-                                status_idx = STATUS.index(projeto_existente.get("Status", "A Iniciar")) if projeto_existente.get("Status") in STATUS else 0
-                                status = st.selectbox("Status", STATUS, index=status_idx)
-                            with col_data_inicio:
-                                data_inicio = st.date_input("Data de Início", value=to_date(projeto_existente.get("Data_Inicio", date.today())), format="DD/MM/YYYY")
-                            with col_data_termino:
-                                data_termino = st.date_input("Data de Término", value=to_date(projeto_existente.get("Data_Termino", date.today())), format="DD/MM/YYYY")
-                            submit_update = st.form_submit_button("Salvar Alterações")
-                            if submit_update:
-                                if data_termino < data_inicio:
-                                    st.error("A data de término não pode ser anterior à data de início.")
-                                else:
-                                    dados_atualizados = {
-                                        "Link_da_Pasta": caminho_pasta, "Pedido": pedido, "ID_Contrato": id_contrato,
-                                        "Área_Setor": area_setor, "Empresa": empresa, "Categoria": categoria,
-                                        "Atividades_Descrição": atividade, "Responsável": responsavel,
-                                        "Tem_Orçamento": tem_orcamento, "Linha_de_base": linha_base,
-                                        "Orçamento": orcamento, "Baseline": baseline, "Melhor_Proposta": melhor_proposta,
-                                        "Preço_Inicial": preco_inicial, "Preço_Final": preco_final,
-                                        "Saving_R$": saving_r, "Saving_Percent": saving_percent,
-                                        "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
-                                        "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
-                                        "Data_Inicio": datetime.combine(data_inicio, datetime.min.time()),
-                                        "Data_Termino": datetime.combine(data_termino, datetime.min.time()),
-                                        "Dias": (data_termino - data_inicio).days,
-                                        "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
-                                    }
-                                    result = collection.update_one({"ID_Projeto": id_selecionado}, {"$set": dados_atualizados})
-                                    if result.modified_count > 0:
-                                        st.success(f"✅ Projeto '{id_selecionado}' atualizado com sucesso!")
-                                        carregar_dados.clear()
-                                    else:
-                                        st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
+                    empresa_idx = Empresas_selecione.index(projeto_existente.get("Empresa", "Selecione")) if projeto_existente.get("Empresa") in Empresas_selecione else 0
+                    empresa = st.selectbox("Empresa", Empresas_selecione, index=empresa_idx)
+                col3, col4 = st.columns(2)
+                with col3:
+                    categoria = st.text_input("Categoria", value=projeto_existente.get("Categoria", ""))
+                with col4:
+                    resp_idx = Comprador_selecione.index(projeto_existente.get("Responsável", "Selecione")) if projeto_existente.get("Responsável") in Comprador_selecione else 0
+                    responsavel = st.selectbox("Responsável", Comprador_selecione, index=resp_idx)
+                atividade = st.text_area("Atividade/Descrição", value=projeto_existente.get("Atividades_Descrição", ""))
+                st.markdown("---")
+                st.write("### Detalhes Financeiros")
+                tem_orcamento = st.checkbox("Tem Orçamento?", value=projeto_existente.get("Tem_Orçamento", False))
+                linha_base = st.checkbox("Tem Baseline?", value=projeto_existente.get("Linha_de_base", False))
+                orcamento, baseline, melhor_proposta, preco_inicial, preco_final = 0.0, 0.0, 0.0, 0.0, 0.0
+                if tem_orcamento:
+                    orcamento_val = projeto_existente.get("Orçamento", 0.0)
+                    orcamento_str = st.text_input("Budget (R$)", value=f"{orcamento_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    orcamento = parse_currency_input(orcamento_str)
+                if linha_base:
+                    baseline_val = projeto_existente.get("Baseline", 0.0)
+                    baseline_str = st.text_input("Baseline (R$)", value=f"{baseline_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    baseline = parse_currency_input(baseline_str)
+                if tem_orcamento or linha_base:
+                    melhor_proposta_val = projeto_existente.get("Melhor_Proposta", 0.0)
+                    melhor_proposta_str = st.text_input("Melhor Proposta (R$)", value=f"{melhor_proposta_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    melhor_proposta = parse_currency_input(melhor_proposta_str)
+                if not (tem_orcamento or linha_base):
+                    preco_inicial_val = projeto_existente.get("Preço_Inicial", 0.0)
+                    preco_inicial_str = st.text_input("Preço Inicial (R$)", value=f"{preco_inicial_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    preco_inicial = parse_currency_input(preco_inicial_str)
+                    preco_final_val = projeto_existente.get("Preço_Final", 0.0)
+                    preco_final_str = st.text_input("Preço Final (R$)", value=f"{preco_final_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    preco_final = parse_currency_input(preco_final_str)
+                
+                saving_r = orcamento - melhor_proposta if tem_orcamento else 0
+                saving_percent = (saving_r / orcamento) * 100 if tem_orcamento and orcamento != 0 else 0
+                ce_baseline = baseline - melhor_proposta if linha_base else 0
+                percent_baseline = (ce_baseline / baseline) * 100 if linha_base and baseline != 0 else 0
+                ce_r = preco_inicial - preco_final if not (tem_orcamento or linha_base) else 0
+                percent_ce = (ce_r / preco_inicial) * 100 if not (tem_orcamento or linha_base) and preco_inicial != 0 else 0
+
+                if tem_orcamento:
+                    st.markdown(f"**Saving R$:** {formatar_moeda(saving_r)}")
+                    st.markdown(f"**% Saving:** {formatar_percentual(saving_percent)}")
+                if linha_base:
+                    st.markdown(f"**C.E Baseline R$:** {formatar_moeda(ce_baseline)}")
+                    st.markdown(f"**% Baseline:** {formatar_percentual(percent_baseline)}")
+                if not (tem_orcamento or linha_base):
+                    st.markdown(f"**C.E R$:** {formatar_moeda(ce_r)}")
+                    st.markdown(f"**% C.E:** {formatar_percentual(percent_ce)}")
+                
+                st.markdown("---")
+                st.write("### Status e Datas")
+                col_status, col_data_inicio, col_data_termino = st.columns(3)
+                with col_status:
+                    status_idx = STATUS.index(projeto_existente.get("Status", "A Iniciar")) if projeto_existente.get("Status") in STATUS else 0
+                    status = st.selectbox("Status", STATUS, index=status_idx)
+                with col_data_inicio:
+                    data_inicio = st.date_input("Data de Início", value=to_date(projeto_existente.get("Data_Inicio", date.today())), format="DD/MM/YYYY")
+                with col_data_termino:
+                    data_termino = st.date_input("Data de Término", value=to_date(projeto_existente.get("Data_Termino", date.today())), format="DD/MM/YYYY")
+                
+                col_botoes_edit = st.columns(2)
+                with col_botoes_edit[0]:
+                    submit_update = st.form_submit_button("Salvar Alterações", type="primary")
+                with col_botoes_edit[1]:
+                    delete_button = st.form_submit_button("Excluir Projeto", type="secondary")
+                
+                if submit_update:
+                    if data_termino < data_inicio:
+                        st.error("A data de término não pode ser anterior à data de início.")
+                    else:
+                        dados_atualizados = {
+                            "Link_da_Pasta": caminho_pasta, "Pedido": pedido, "ID_Contrato": id_contrato,
+                            "Área_Setor": area_setor, "Empresa": empresa, "Categoria": categoria,
+                            "Atividades_Descrição": atividade, "Responsável": responsavel,
+                            "Tem_Orçamento": tem_orcamento, "Linha_de_base": linha_base,
+                            "Orçamento": orcamento, "Baseline": baseline, "Melhor_Proposta": melhor_proposta,
+                            "Preço_Inicial": preco_inicial, "Preço_Final": preco_final,
+                            "Saving_R$": saving_r, "Saving_Percent": saving_percent,
+                            "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
+                            "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
+                            "Data_Inicio": datetime.combine(data_inicio, datetime.min.time()),
+                            "Data_Termino": datetime.combine(data_termino, datetime.min.time()),
+                            "Dias": (data_termino - data_inicio).days,
+                            "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
+                        }
+                        result = projetos_col.update_one({"ID_Projeto": projeto_selecionado}, {"$set": dados_atualizados})
+                        if result.modified_count > 0:
+                            st.success(f"✅ Projeto '{projeto_selecionado}' atualizado com sucesso!")
+                            carregar_dados.clear()
+                            st.rerun()
+                        else:
+                            st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
+                
+                if delete_button:
+                    resultado = projetos_col.delete_one({"ID_Projeto": projeto_selecionado})
+                    if resultado.deleted_count > 0:
+                        st.success(f"Projeto '{projeto_selecionado}' foi excluído com sucesso!")
+                        carregar_dados.clear()
+                        st.rerun()
+                    else:
+                        st.error("O projeto não foi encontrado para exclusão. Pode já ter sido removido.")

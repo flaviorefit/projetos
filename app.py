@@ -3,77 +3,98 @@ import pandas as pd
 from pymongo import MongoClient
 from datetime import datetime, date
 import plotly.express as px
+import hashlib
 import io
 from st_aggrid import AgGrid, GridOptionsBuilder
-
-# =======================
-# FUNÇÃO DE LOGIN
-# =======================
-def check_password():
-    """Retorna True se a senha estiver correta, False caso contrário."""
-
-    # 1. VERIFICAR SE A SECRET DE SENHA EXISTE
-    if "login_password" not in st.secrets:
-        st.error("❌ A configuração de senha (login_password) não foi encontrada nos secrets do Streamlit.")
-        st.info("Por favor, adicione 'login_password = \"sua_senha\"' ao seu arquivo .streamlit/secrets.toml e reinicie o aplicativo.")
-        return False # Impede a continuação
-
-    # --- O restante da função continua como antes ---
-
-    def password_entered():
-        """Verifica se a senha digitada corresponde à secret."""
-        if st.session_state["password"] == st.secrets["login_password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Não manter a senha em memória
-        else:
-            st.session_state["password_correct"] = False
-
-    # Inicializa o estado da sessão se não existir
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
-
-    # Se a senha não estiver correta, mostra o formulário de login
-    if not st.session_state["password_correct"]:
-        st.title("🔒 Tela de Login")
-        st.text_input(
-            "Digite a senha para acessar:", type="password", on_change=password_entered, key="password"
-        )
-        # Mostra erro apenas se uma tentativa já foi feita
-        if "password" in st.session_state and not st.session_state["password_correct"]:
-             st.error("😕 Senha incorreta. Tente novamente.")
-        return False
-    else:
-        return True
 
 # =======================
 # CONFIGURAÇÃO DA PÁGINA
 # =======================
 st.set_page_config(page_title="Gestão de Projetos", layout="wide")
 
-# =======================
-# VERIFICAÇÃO DE LOGIN
-# =======================
-if not check_password():
-    st.stop()  # Para a execução do app se o login falhar
+# Inicializa o estado de login
+if 'login_realizado' not in st.session_state:
+    st.session_state.login_realizado = False
+if 'usuario_logado' not in st.session_state:
+    st.session_state.usuario_logado = ""
 
-# O restante do seu código original começa aqui...
+# =======================
+# FUNÇÕES DE LOGIN
+# =======================
+def hash_password(password):
+    """Gera um hash SHA256 para a senha fornecida."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verificar_login(usuario, senha):
+    """Verifica as credenciais do usuário com o secrets.toml."""
+    try:
+        senha_salva = st.secrets.get("usuarios", {}).get(usuario, {}).get("password")
+        if senha_salva is None:
+            return False
+        senha_digitada_hash = hash_password(senha)
+        if senha_digitada_hash == senha_salva:
+            return True
+        return False
+    except KeyError:
+        return False
+
+def tela_login():
+    st.markdown(
+        """
+        <style>
+        .stApp { background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); }
+        .main .block-container { padding-top: 0; padding-bottom: 0; max-width: 100%; }
+        .login-container { display: flex; justify-content: center; align-items: flex-start; min-height: 50vh; padding: 50px 20px 20px 20px; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    _, col2, _ = st.columns([1, 2, 1])
+
+    with col2:
+        st.markdown("<h1 style='text-align: center; color: #002776;'>Sistema de Projetos</h1>", unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            usuario = st.text_input("Usuário", placeholder="Digite seu usuário")
+            senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+            if st.form_submit_button("Entrar", use_container_width=True, type="primary"):
+                if verificar_login(usuario, senha):
+                    st.session_state.login_realizado = True
+                    st.session_state.usuario_logado = usuario
+                    st.success("Login realizado com sucesso!")
+                    st.rerun()
+                else:
+                    st.error("Usuário ou senha inválidos.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def logout():
+    st.session_state.clear()
+    st.rerun()
 
 # =======================
 # FUNÇÕES DE FORMATAÇÃO E AUXILIARES
 # =======================
 def formatar_moeda(valor):
-    """Formata um valor numérico como moeda brasileira (R$)."""
     if pd.isna(valor) or valor is None or valor == "":
         return "R$ 0,00"
     valor_float = float(valor)
     return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def formatar_percentual(valor):
-    """Formata um valor numérico como percentual com duas casas decimais."""
     if pd.isna(valor) or valor is None or valor == "":
         return "0,00%"
     valor_float = float(valor)
     return f"{valor_float:.2f}%".replace(".", ",")
+
+def parse_currency_input(value_str):
+    if not value_str:
+        return 0.0
+    value_str = str(value_str).replace("R$", "").strip().replace(".", "").replace(",", ".")
+    try:
+        return float(value_str)
+    except (ValueError, TypeError):
+        return 0.0
 
 def to_date(dt):
     if isinstance(dt, (datetime, pd.Timestamp)):
@@ -100,7 +121,6 @@ def calcular_progresso(data_inicio, data_termino):
     return round(progresso, 2)
 
 def convert_df_to_excel(df):
-    """Converte um DataFrame para um arquivo Excel em memória."""
     output = io.BytesIO()
     for col in df.select_dtypes(include=['datetimetz']).columns:
         df[col] = df[col].dt.tz_localize(None)
@@ -109,16 +129,14 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-def parse_currency_input(text_input):
-    """Converte um input de texto formatado como moeda para float."""
-    try:
-        return float(text_input.replace("R$", "").replace(".", "").replace(",", ".").strip())
-    except (ValueError, AttributeError):
-        return 0.0
+# =======================
+# VERIFICAÇÃO DE LOGIN E CONEXÃO
+# =======================
+if not st.session_state.get("login_realizado"):
+    tela_login()
+    st.stop()
 
-# ===============================
-# CONEXÃO COM O BANCO DE DADOS
-# ===============================
+# Conexão com o MongoDB
 @st.cache_resource
 def init_connection():
     try:
@@ -133,9 +151,7 @@ client = init_connection()
 db = client[st.secrets["mongo_db"]]
 projetos_col = db[st.secrets["mongo_collection_projetos"]]
 
-# =======================
-# CARREGAR DADOS
-# =======================
+# Carregar dados
 @st.cache_data(ttl=10)
 def carregar_dados():
     try:
@@ -201,20 +217,14 @@ def gerar_id_otimizado():
     except (ValueError, TypeError):
         return "PROJ001"
 
-# =======================
-# FUNÇÕES DE FILTRO
-# =======================
 def aplicar_filtros_projetos(df_base):
-    """
-    Cria os widgets de filtro na barra lateral.
-    """
     status_opcoes = sorted(df_base["Status"].dropna().unique().tolist())
     empresas_opcoes = sorted(df_base["Empresa"].dropna().unique().tolist())
     responsaveis_opcoes = sorted(df_base["Responsável"].dropna().unique().tolist())
     
-    filtro_status = st.multiselect("Filtrar por Status", options=status_opcoes, key="filtro_status")
-    filtro_empresa = st.multiselect("Filtrar por Empresa", options=empresas_opcoes, key="filtro_empresa")
-    filtro_responsavel = st.multiselect("Filtrar por Responsável", options=responsaveis_opcoes, key="filtro_responsavel")
+    filtro_status = st.sidebar.multiselect("Filtrar por Status", options=status_opcoes)
+    filtro_empresa = st.sidebar.multiselect("Filtrar por Empresa", options=empresas_opcoes)
+    filtro_responsavel = st.sidebar.multiselect("Filtrar por Responsável", options=responsaveis_opcoes)
     
     df_filtrado = df_base.copy()
     
@@ -230,29 +240,30 @@ def aplicar_filtros_projetos(df_base):
 # =======================
 # LÓGICA PRINCIPAL DO APP
 # =======================
+st.sidebar.title(f"Bem-vindo(a), {st.session_state.usuario_logado}")
 st.sidebar.title("Menu")
+
+if st.sidebar.button("Sair"):
+    logout()
+
+with st.sidebar.expander("🎯 Filtros Gerais", expanded=True):
+    df_filtrado = aplicar_filtros_projetos(df)
+
 aba = st.sidebar.radio(
     "Escolha uma opção:",
     ["Dashboard", "Listar Projetos", "Cadastrar Projeto", "Editar/Excluir"]
 )
 
-with st.sidebar.expander("🎯 Filtros Gerais", expanded=True):
-    df_filtrado = aplicar_filtros_projetos(df)
-
-# =======================
-# RENDERIZAÇÃO DAS ABAS
-# =======================
+# Renderização das abas
 if aba == "Dashboard":
     st.header("📊 Dashboard de Projetos")
     
     if not df_filtrado.empty:
-        # Indicadores Chave
         qtd_total = len(df_filtrado)
         qtd_concluidos = len(df_filtrado[df_filtrado["Status"] == "Concluído"])
         qtd_andamento = len(df_filtrado[df_filtrado["Status"] == "Em andamento"])
         qtd_atrasados = len(df_filtrado[df_filtrado["Status"] == "Atrasado"])
         
-        # Salvings e Custos
         total_saving = pd.to_numeric(df_filtrado["Saving_R$"], errors='coerce').sum()
         total_ce_baseline = pd.to_numeric(df_filtrado["CE_Baseline_R$"], errors='coerce').sum()
         total_ce_geral = pd.to_numeric(df_filtrado["CE_R$"], errors='coerce').sum()
@@ -276,7 +287,7 @@ if aba == "Dashboard":
         for col, (titulo, valor, cor) in zip([card_col1, card_col2, card_col3, card_col4], cards):
             col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
 
-        st.markdown("", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         card_col5, card_col6, card_col7 = st.columns(3)
         
         cards_financeiro = [
@@ -288,7 +299,7 @@ if aba == "Dashboard":
         for col, (titulo, valor, cor) in zip([card_col5, card_col6, card_col7], cards_financeiro):
             col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
         
-        st.markdown("", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         
         col_graf1, col_graf2 = st.columns(2)
         with col_graf1:
@@ -443,8 +454,7 @@ elif aba == "Cadastrar Projeto":
                     "Preço_Final": preco_final, "Saving_R$": saving_r, "Saving_Percent": saving_percent,
                     "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
                     "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
-                    "Data_Inicio": datetime.combine(data_inicio, datetime.min.time()), 
-                    "Data_Termino": datetime.combine(data_termino, datetime.min.time()),
+                    "Data_Inicio": data_inicio, "Data_Termino": data_termino,
                     "Dias": (data_termino - data_inicio).days,
                     "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
                 }
@@ -521,7 +531,6 @@ elif aba == "Editar/Excluir":
                     preco_final_str = st.text_input("Preço Final (R$)", value=f"{preco_final_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                     preco_final = parse_currency_input(preco_final_str)
                 
-                # Recalcular valores derivados
                 saving_r = orcamento - melhor_proposta if tem_orcamento else 0
                 saving_percent = (saving_r / orcamento) * 100 if tem_orcamento and orcamento != 0 else 0
                 ce_baseline = baseline - melhor_proposta if linha_base else 0
@@ -529,7 +538,6 @@ elif aba == "Editar/Excluir":
                 ce_r = preco_inicial - preco_final if not (tem_orcamento or linha_base) else 0
                 percent_ce = (ce_r / preco_inicial) * 100 if not (tem_orcamento or linha_base) and preco_inicial != 0 else 0
 
-                # Exibir valores calculados
                 if tem_orcamento:
                     st.markdown(f"**Saving R$:** {formatar_moeda(saving_r)}")
                     st.markdown(f"**% Saving:** {formatar_percentual(saving_percent)}")
@@ -545,20 +553,17 @@ elif aba == "Editar/Excluir":
                 col_status, col_data_inicio, col_data_termino = st.columns(3)
                 with col_status:
                     status_idx = STATUS.index(projeto_existente.get("Status", "A Iniciar")) if projeto_existente.get("Status") in STATUS else 0
-                    status = st.selectbox("Status", STATUS, index=status_idx, key="edit_status")
+                    status = st.selectbox("Status", STATUS, index=status_idx)
                 with col_data_inicio:
-                    data_inicio_val = to_date(projeto_existente.get("Data_Inicio", date.today()))
-                    data_inicio = st.date_input("Data de Início", value=data_inicio_val, format="DD/MM/YYYY", key="edit_data_inicio")
+                    data_inicio = st.date_input("Data de Início", value=to_date(projeto_existente.get("Data_Inicio", date.today())), format="DD/MM/YYYY")
                 with col_data_termino:
-                    data_termino_val = to_date(projeto_existente.get("Data_Termino", date.today()))
-                    data_termino = st.date_input("Data de Término", value=data_termino_val, format="DD/MM/YYYY", key="edit_data_termino")
+                    data_termino = st.date_input("Data de Término", value=to_date(projeto_existente.get("Data_Termino", date.today())), format="DD/MM/YYYY")
                 
                 col_botoes_edit = st.columns(2)
                 with col_botoes_edit[0]:
                     submit_update = st.form_submit_button("Salvar Alterações", type="primary")
                 with col_botoes_edit[1]:
-                    # Adicionando uma chave para o botão de exclusão para evitar conflitos
-                    delete_button = st.form_submit_button("Excluir Projeto", type="secondary", key="delete_button")
+                    delete_button = st.form_submit_button("Excluir Projeto", type="secondary")
                 
                 if submit_update:
                     if data_termino < data_inicio:
@@ -579,31 +584,19 @@ elif aba == "Editar/Excluir":
                             "Dias": (data_termino - data_inicio).days,
                             "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
                         }
-                        try:
-                            result = projetos_col.update_one({"ID_Projeto": projeto_selecionado}, {"$set": dados_atualizados})
-                            if result.modified_count > 0:
-                                st.success(f"✅ Projeto '{projeto_selecionado}' atualizado com sucesso!")
-                                carregar_dados.clear()
-                                st.rerun()
-                            else:
-                                st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
-                        except Exception as e:
-                            st.error(f"❌ Erro ao atualizar o projeto: {e}")
-                
-                if delete_button:
-                    try:
-                        resultado = projetos_col.delete_one({"ID_Projeto": projeto_selecionado})
-                        if resultado.deleted_count > 0:
-                            st.success(f"🗑️ Projeto '{projeto_selecionado}' foi excluído com sucesso!")
+                        result = projetos_col.update_one({"ID_Projeto": projeto_selecionado}, {"$set": dados_atualizados})
+                        if result.modified_count > 0:
+                            st.success(f"✅ Projeto '{projeto_selecionado}' atualizado com sucesso!")
                             carregar_dados.clear()
                             st.rerun()
                         else:
-                            st.error("O projeto não foi encontrado para exclusão. Pode já ter sido removido.")
-                    except Exception as e:
-                        st.error(f"❌ Erro ao excluir o projeto: {e}")
-        else:
-            st.error(f"Projeto com ID '{projeto_selecionado}' não encontrado no banco de dados.")
-
-
-
-
+                            st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
+                
+                if delete_button:
+                    resultado = projetos_col.delete_one({"ID_Projeto": projeto_selecionado})
+                    if resultado.deleted_count > 0:
+                        st.success(f"Projeto '{projeto_selecionado}' foi excluído com sucesso!")
+                        carregar_dados.clear()
+                        st.rerun()
+                    else:
+                        st.error("O projeto não foi encontrado para exclusão. Pode já ter sido removido.")

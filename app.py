@@ -11,6 +11,15 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 # =======================
 def check_password():
     """Retorna True se a senha estiver correta, False caso contrário."""
+
+    # 1. VERIFICAR SE A SECRET DE SENHA EXISTE
+    if "login_password" not in st.secrets:
+        st.error("❌ A configuração de senha (login_password) não foi encontrada nos secrets do Streamlit.")
+        st.info("Por favor, adicione 'login_password = \"sua_senha\"' ao seu arquivo .streamlit/secrets.toml e reinicie o aplicativo.")
+        return False # Impede a continuação
+
+    # --- O restante da função continua como antes ---
+
     def password_entered():
         """Verifica se a senha digitada corresponde à secret."""
         if st.session_state["password"] == st.secrets["login_password"]:
@@ -29,6 +38,7 @@ def check_password():
         st.text_input(
             "Digite a senha para acessar:", type="password", on_change=password_entered, key="password"
         )
+        # Mostra erro apenas se uma tentativa já foi feita
         if "password" in st.session_state and not st.session_state["password_correct"]:
              st.error("😕 Senha incorreta. Tente novamente.")
         return False
@@ -593,6 +603,7 @@ elif aba == "Editar/Excluir":
                         st.error(f"❌ Erro ao excluir o projeto: {e}")
         else:
             st.error(f"Projeto com ID '{projeto_selecionado}' não encontrado no banco de dados.")
+
 
 
 

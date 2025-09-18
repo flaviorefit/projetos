@@ -3,8 +3,6 @@ import pandas as pd
 from pymongo import MongoClient
 from datetime import datetime, date
 import plotly.express as px
-from PIL import Image
-import hashlib
 import io
 from st_aggrid import AgGrid, GridOptionsBuilder
 
@@ -24,15 +22,6 @@ def formatar_percentual(valor):
         return "0,00%"
     valor_float = float(valor)
     return f"{valor_float:.2f}%".replace(".", ",")
-
-def parse_currency_input(value_str):
-    if not value_str:
-        return 0.0
-    value_str = str(value_str).replace("R$", "").strip().replace(".", "").replace(",", ".")
-    try:
-        return float(value_str)
-    except (ValueError, TypeError):
-        return 0.0
 
 def to_date(dt):
     if isinstance(dt, (datetime, pd.Timestamp)):
@@ -68,86 +57,10 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-
 # =======================
 # CONFIGURAÇÃO DA PÁGINA
 # =======================
 st.set_page_config(page_title="Gestão de Projetos", layout="wide")
-
-
-# =======================
-# SISTEMA DE LOGIN
-# =======================
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verificar_login(usuario, senha):
-    try:
-        senha_salva = st.secrets.get("usuarios", {}).get(usuario, {}).get("password")
-        if senha_salva is None:
-            return False
-        senha_digitada_hash = hash_password(senha)
-        if senha_digitada_hash == senha_salva:
-            return True
-        return False
-    except KeyError:
-        return False
-
-def tela_login():
-    st.markdown(
-        """
-        <style>
-        .stApp { background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); }
-        .main .block-container { padding-top: 0; padding-bottom: 0; max-width: 100%; }
-        .login-container { display: flex; justify-content: center; align-items: flex-start; min-height: 50vh; padding: 50px 20px 20px 20px; }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    _, col2, _ = st.columns([1, 2, 1])
-
-    with col2:
-        st.markdown("<h1 style='text-align: center; color: #002776;'>Sistema de Projetos</h1>", unsafe_allow_html=True)
-        
-        with st.form("login_form"):
-            usuario = st.text_input("Usuário", placeholder="Digite seu usuário")
-            senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
-            if st.form_submit_button("Entrar", use_container_width=True, type="primary"):
-                if verificar_login(usuario, senha):
-                    st.session_state.login_realizado = True
-                    st.session_state.usuario_logado = usuario
-                    st.success("Login realizado com sucesso!")
-                    st.rerun()
-                else:
-                    st.error("Usuário ou senha inválidos.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def logout():
-    st.session_state.clear()
-    st.rerun()
-
-# =======================
-# VERIFICAÇÃO DE LOGIN
-# =======================
-if not st.session_state.get("login_realizado"):
-    tela_login()
-    st.stop()
-
-# =======================
-# ESTILO DA BARRA LATERAL
-# =======================
-st.markdown(
-    """
-    <style>
-    [data-testid="stSidebar"] { background-color: #c6bed0; }
-    [data-testid="stSidebar"] .stRadio label { color: white !important; }
-    [data-testid="stSidebar"] .streamlit-expanderHeader { color: white !important; }
-    [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stTextInput label, [data-testid="stSidebar"] .stDateInput label { color: #000000 !important; font-weight: bold !important; }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 # ===============================
 # CONEXÃO COM O BANCO DE DADOS
@@ -263,12 +176,12 @@ def aplicar_filtros_projetos(df_base):
 # =======================
 # LÓGICA PRINCIPAL DO APP
 # =======================
+st.sidebar.title("Menu")
 aba = st.sidebar.radio(
     "Escolha uma opção:",
     ["Dashboard", "Listar Projetos", "Cadastrar Projeto", "Editar/Excluir"]
 )
 
-# CORREÇÃO: Filtros são aplicados e o df_filtrado é criado ANTES da lógica das abas
 with st.sidebar.expander("🎯 Filtros Gerais", expanded=True):
     df_filtrado = aplicar_filtros_projetos(df)
 

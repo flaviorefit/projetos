@@ -22,27 +22,32 @@ if 'usuario_logado' not in st.session_state:
 # -------------------------
 # Funções de Login
 # -------------------------
-# Mude a função make_hashes para hash_password
 def hash_password(password):
     """Gera um hash SHA256 para a senha fornecida."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verificar_login(usuario, senha):
-    # Acessa a senha do usuário diretamente da seção "usuarios"
-    # Acessa a senha usando a notação de ponto, como definida no secrets.toml
-    senha_salva = st.secrets.get("usuarios", {}).get(f"{usuario}.password")
-    
-    # Se o usuário não existir nos segredos, a senha_salva será None
-    if senha_salva is None:
-        return False
+    """Verifica as credenciais do usuário com o secrets.toml."""
+    try:
+        # Acessa a senha do usuário usando a estrutura de dicionário aninhado
+        # Ex: st.secrets["usuarios"]["flavio.ribeiro"]["password"]
+        senha_salva = st.secrets.get("usuarios", {}).get(usuario, {}).get("password")
+
+        # Se o usuário não existir nos segredos, a senha_salva será None
+        if senha_salva is None:
+            return False
+            
+        # Gera o hash da senha digitada pelo usuário
+        senha_digitada_hash = hash_password(senha)
         
-    # Gera o hash da senha digitada pelo usuário
-    senha_digitada_hash = hash_password(senha)
-    
-    # Compara o hash gerado com o hash salvo
-    if senha_digitada_hash == senha_salva:
-        return True
-    return False
+        # Compara o hash gerado com o hash salvo
+        if senha_digitada_hash == senha_salva:
+            return True
+        return False
+    except KeyError:
+        st.error("Erro: Credenciais de usuário não configuradas ou em formato incorreto no secrets.toml.")
+        return False
+
 
 def tela_login():
     st.markdown(
@@ -512,8 +517,4 @@ else:
                                         st.success(f"✅ Projeto '{id_selecionado}' atualizado com sucesso!")
                                         carregar_dados.clear()
                                     else:
-
                                         st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
-
-
-

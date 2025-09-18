@@ -497,5 +497,102 @@ elif aba == "Editar/Excluir":
                     orcamento = parse_currency_input(orcamento_str)
                 if linha_base:
                     baseline_val = projeto_existente.get("Baseline", 0.0)
-                    baseline_str = st.text_input("Baseline (
+                    baseline_str = st.text_input("Baseline (R$)", value=f"{baseline_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    baseline = parse_currency_input(baseline_str)
+                if tem_orcamento or linha_base:
+                    melhor_proposta_val = projeto_existente.get("Melhor_Proposta", 0.0)
+                    melhor_proposta_str = st.text_input("Melhor Proposta (R$)", value=f"{melhor_proposta_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    melhor_proposta = parse_currency_input(melhor_proposta_str)
+                if not (tem_orcamento or linha_base):
+                    preco_inicial_val = projeto_existente.get("Preço_Inicial", 0.0)
+                    preco_inicial_str = st.text_input("Preço Inicial (R$)", value=f"{preco_inicial_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    preco_inicial = parse_currency_input(preco_inicial_str)
+                    preco_final_val = projeto_existente.get("Preço_Final", 0.0)
+                    preco_final_str = st.text_input("Preço Final (R$)", value=f"{preco_final_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    preco_final = parse_currency_input(preco_final_str)
+                
+                # Recalcular valores derivados
+                saving_r = orcamento - melhor_proposta if tem_orcamento else 0
+                saving_percent = (saving_r / orcamento) * 100 if tem_orcamento and orcamento != 0 else 0
+                ce_baseline = baseline - melhor_proposta if linha_base else 0
+                percent_baseline = (ce_baseline / baseline) * 100 if linha_base and baseline != 0 else 0
+                ce_r = preco_inicial - preco_final if not (tem_orcamento or linha_base) else 0
+                percent_ce = (ce_r / preco_inicial) * 100 if not (tem_orcamento or linha_base) and preco_inicial != 0 else 0
+
+                # Exibir valores calculados
+                if tem_orcamento:
+                    st.markdown(f"**Saving R$:** {formatar_moeda(saving_r)}")
+                    st.markdown(f"**% Saving:** {formatar_percentual(saving_percent)}")
+                if linha_base:
+                    st.markdown(f"**C.E Baseline R$:** {formatar_moeda(ce_baseline)}")
+                    st.markdown(f"**% Baseline:** {formatar_percentual(percent_baseline)}")
+                if not (tem_orcamento or linha_base):
+                    st.markdown(f"**C.E R$:** {formatar_moeda(ce_r)}")
+                    st.markdown(f"**% C.E:** {formatar_percentual(percent_ce)}")
+                
+                st.markdown("---")
+                st.write("### Status e Datas")
+                col_status, col_data_inicio, col_data_termino = st.columns(3)
+                with col_status:
+                    status_idx = STATUS.index(projeto_existente.get("Status", "A Iniciar")) if projeto_existente.get("Status") in STATUS else 0
+                    status = st.selectbox("Status", STATUS, index=status_idx, key="edit_status")
+                with col_data_inicio:
+                    data_inicio_val = to_date(projeto_existente.get("Data_Inicio", date.today()))
+                    data_inicio = st.date_input("Data de Início", value=data_inicio_val, format="DD/MM/YYYY", key="edit_data_inicio")
+                with col_data_termino:
+                    data_termino_val = to_date(projeto_existente.get("Data_Termino", date.today()))
+                    data_termino = st.date_input("Data de Término", value=data_termino_val, format="DD/MM/YYYY", key="edit_data_termino")
+                
+                col_botoes_edit = st.columns(2)
+                with col_botoes_edit[0]:
+                    submit_update = st.form_submit_button("Salvar Alterações", type="primary")
+                with col_botoes_edit[1]:
+                    # Adicionando uma chave para o botão de exclusão para evitar conflitos
+                    delete_button = st.form_submit_button("Excluir Projeto", type="secondary", key="delete_button")
+                
+                if submit_update:
+                    if data_termino < data_inicio:
+                        st.error("A data de término não pode ser anterior à data de início.")
+                    else:
+                        dados_atualizados = {
+                            "Link_da_Pasta": caminho_pasta, "Pedido": pedido, "ID_Contrato": id_contrato,
+                            "Área_Setor": area_setor, "Empresa": empresa, "Categoria": categoria,
+                            "Atividades_Descrição": atividade, "Responsável": responsavel,
+                            "Tem_Orçamento": tem_orcamento, "Linha_de_base": linha_base,
+                            "Orçamento": orcamento, "Baseline": baseline, "Melhor_Proposta": melhor_proposta,
+                            "Preço_Inicial": preco_inicial, "Preço_Final": preco_final,
+                            "Saving_R$": saving_r, "Saving_Percent": saving_percent,
+                            "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
+                            "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
+                            "Data_Inicio": datetime.combine(data_inicio, datetime.min.time()),
+                            "Data_Termino": datetime.combine(data_termino, datetime.min.time()),
+                            "Dias": (data_termino - data_inicio).days,
+                            "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
+                        }
+                        try:
+                            result = projetos_col.update_one({"ID_Projeto": projeto_selecionado}, {"$set": dados_atualizados})
+                            if result.modified_count > 0:
+                                st.success(f"✅ Projeto '{projeto_selecionado}' atualizado com sucesso!")
+                                carregar_dados.clear()
+                                st.rerun()
+                            else:
+                                st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
+                        except Exception as e:
+                            st.error(f"❌ Erro ao atualizar o projeto: {e}")
+                
+                if delete_button:
+                    try:
+                        resultado = projetos_col.delete_one({"ID_Projeto": projeto_selecionado})
+                        if resultado.deleted_count > 0:
+                            st.success(f"🗑️ Projeto '{projeto_selecionado}' foi excluído com sucesso!")
+                            carregar_dados.clear()
+                            st.rerun()
+                        else:
+                            st.error("O projeto não foi encontrado para exclusão. Pode já ter sido removido.")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao excluir o projeto: {e}")
+        else:
+            st.error(f"Projeto com ID '{projeto_selecionado}' não encontrado no banco de dados.")
+
+
 

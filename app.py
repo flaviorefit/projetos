@@ -7,6 +7,48 @@ import io
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 # =======================
+# FUNÇÃO DE LOGIN
+# =======================
+def check_password():
+    """Retorna True se a senha estiver correta, False caso contrário."""
+    def password_entered():
+        """Verifica se a senha digitada corresponde à secret."""
+        if st.session_state["password"] == st.secrets["login_password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Não manter a senha em memória
+        else:
+            st.session_state["password_correct"] = False
+
+    # Inicializa o estado da sessão se não existir
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    # Se a senha não estiver correta, mostra o formulário de login
+    if not st.session_state["password_correct"]:
+        st.title("🔒 Tela de Login")
+        st.text_input(
+            "Digite a senha para acessar:", type="password", on_change=password_entered, key="password"
+        )
+        if "password" in st.session_state and not st.session_state["password_correct"]:
+             st.error("😕 Senha incorreta. Tente novamente.")
+        return False
+    else:
+        return True
+
+# =======================
+# CONFIGURAÇÃO DA PÁGINA
+# =======================
+st.set_page_config(page_title="Gestão de Projetos", layout="wide")
+
+# =======================
+# VERIFICAÇÃO DE LOGIN
+# =======================
+if not check_password():
+    st.stop()  # Para a execução do app se o login falhar
+
+# O restante do seu código original começa aqui...
+
+# =======================
 # FUNÇÕES DE FORMATAÇÃO E AUXILIARES
 # =======================
 def formatar_moeda(valor):
@@ -57,10 +99,12 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-# =======================
-# CONFIGURAÇÃO DA PÁGINA
-# =======================
-st.set_page_config(page_title="Gestão de Projetos", layout="wide")
+def parse_currency_input(text_input):
+    """Converte um input de texto formatado como moeda para float."""
+    try:
+        return float(text_input.replace("R$", "").replace(".", "").replace(",", ".").strip())
+    except (ValueError, AttributeError):
+        return 0.0
 
 # ===============================
 # CONEXÃO COM O BANCO DE DADOS
@@ -222,7 +266,8 @@ if aba == "Dashboard":
         for col, (titulo, valor, cor) in zip([card_col1, card_col2, card_col3, card_col4], cards):
             col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("  
+", unsafe_allow_html=True)
         card_col5, card_col6, card_col7 = st.columns(3)
         
         cards_financeiro = [
@@ -234,7 +279,8 @@ if aba == "Dashboard":
         for col, (titulo, valor, cor) in zip([card_col5, card_col6, card_col7], cards_financeiro):
             col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
         
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("  
+", unsafe_allow_html=True)
         
         col_graf1, col_graf2 = st.columns(2)
         with col_graf1:
@@ -389,7 +435,8 @@ elif aba == "Cadastrar Projeto":
                     "Preço_Final": preco_final, "Saving_R$": saving_r, "Saving_Percent": saving_percent,
                     "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
                     "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
-                    "Data_Inicio": data_inicio, "Data_Termino": data_termino,
+                    "Data_Inicio": datetime.combine(data_inicio, datetime.min.time()), 
+                    "Data_Termino": datetime.combine(data_termino, datetime.min.time()),
                     "Dias": (data_termino - data_inicio).days,
                     "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
                 }
@@ -452,86 +499,4 @@ elif aba == "Editar/Excluir":
                     orcamento = parse_currency_input(orcamento_str)
                 if linha_base:
                     baseline_val = projeto_existente.get("Baseline", 0.0)
-                    baseline_str = st.text_input("Baseline (R$)", value=f"{baseline_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                    baseline = parse_currency_input(baseline_str)
-                if tem_orcamento or linha_base:
-                    melhor_proposta_val = projeto_existente.get("Melhor_Proposta", 0.0)
-                    melhor_proposta_str = st.text_input("Melhor Proposta (R$)", value=f"{melhor_proposta_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                    melhor_proposta = parse_currency_input(melhor_proposta_str)
-                if not (tem_orcamento or linha_base):
-                    preco_inicial_val = projeto_existente.get("Preço_Inicial", 0.0)
-                    preco_inicial_str = st.text_input("Preço Inicial (R$)", value=f"{preco_inicial_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                    preco_inicial = parse_currency_input(preco_inicial_str)
-                    preco_final_val = projeto_existente.get("Preço_Final", 0.0)
-                    preco_final_str = st.text_input("Preço Final (R$)", value=f"{preco_final_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                    preco_final = parse_currency_input(preco_final_str)
-                
-                saving_r = orcamento - melhor_proposta if tem_orcamento else 0
-                saving_percent = (saving_r / orcamento) * 100 if tem_orcamento and orcamento != 0 else 0
-                ce_baseline = baseline - melhor_proposta if linha_base else 0
-                percent_baseline = (ce_baseline / baseline) * 100 if linha_base and baseline != 0 else 0
-                ce_r = preco_inicial - preco_final if not (tem_orcamento or linha_base) else 0
-                percent_ce = (ce_r / preco_inicial) * 100 if not (tem_orcamento or linha_base) and preco_inicial != 0 else 0
-
-                if tem_orcamento:
-                    st.markdown(f"**Saving R$:** {formatar_moeda(saving_r)}")
-                    st.markdown(f"**% Saving:** {formatar_percentual(saving_percent)}")
-                if linha_base:
-                    st.markdown(f"**C.E Baseline R$:** {formatar_moeda(ce_baseline)}")
-                    st.markdown(f"**% Baseline:** {formatar_percentual(percent_baseline)}")
-                if not (tem_orcamento or linha_base):
-                    st.markdown(f"**C.E R$:** {formatar_moeda(ce_r)}")
-                    st.markdown(f"**% C.E:** {formatar_percentual(percent_ce)}")
-                
-                st.markdown("---")
-                st.write("### Status e Datas")
-                col_status, col_data_inicio, col_data_termino = st.columns(3)
-                with col_status:
-                    status_idx = STATUS.index(projeto_existente.get("Status", "A Iniciar")) if projeto_existente.get("Status") in STATUS else 0
-                    status = st.selectbox("Status", STATUS, index=status_idx)
-                with col_data_inicio:
-                    data_inicio = st.date_input("Data de Início", value=to_date(projeto_existente.get("Data_Inicio", date.today())), format="DD/MM/YYYY")
-                with col_data_termino:
-                    data_termino = st.date_input("Data de Término", value=to_date(projeto_existente.get("Data_Termino", date.today())), format="DD/MM/YYYY")
-                
-                col_botoes_edit = st.columns(2)
-                with col_botoes_edit[0]:
-                    submit_update = st.form_submit_button("Salvar Alterações", type="primary")
-                with col_botoes_edit[1]:
-                    delete_button = st.form_submit_button("Excluir Projeto", type="secondary")
-                
-                if submit_update:
-                    if data_termino < data_inicio:
-                        st.error("A data de término não pode ser anterior à data de início.")
-                    else:
-                        dados_atualizados = {
-                            "Link_da_Pasta": caminho_pasta, "Pedido": pedido, "ID_Contrato": id_contrato,
-                            "Área_Setor": area_setor, "Empresa": empresa, "Categoria": categoria,
-                            "Atividades_Descrição": atividade, "Responsável": responsavel,
-                            "Tem_Orçamento": tem_orcamento, "Linha_de_base": linha_base,
-                            "Orçamento": orcamento, "Baseline": baseline, "Melhor_Proposta": melhor_proposta,
-                            "Preço_Inicial": preco_inicial, "Preço_Final": preco_final,
-                            "Saving_R$": saving_r, "Saving_Percent": saving_percent,
-                            "CE_Baseline_R$": ce_baseline, "Percentual_CE_Linha_de_base": percent_baseline,
-                            "CE_R$": ce_r, "Porcentagem_CE": percent_ce, "Status": status,
-                            "Data_Inicio": datetime.combine(data_inicio, datetime.min.time()),
-                            "Data_Termino": datetime.combine(data_termino, datetime.min.time()),
-                            "Dias": (data_termino - data_inicio).days,
-                            "Progresso_Porcentagem": calcular_progresso(data_inicio, data_termino),
-                        }
-                        result = projetos_col.update_one({"ID_Projeto": projeto_selecionado}, {"$set": dados_atualizados})
-                        if result.modified_count > 0:
-                            st.success(f"✅ Projeto '{projeto_selecionado}' atualizado com sucesso!")
-                            carregar_dados.clear()
-                            st.rerun()
-                        else:
-                            st.info("Nenhuma alteração detectada. O projeto não foi modificado.")
-                
-                if delete_button:
-                    resultado = projetos_col.delete_one({"ID_Projeto": projeto_selecionado})
-                    if resultado.deleted_count > 0:
-                        st.success(f"Projeto '{projeto_selecionado}' foi excluído com sucesso!")
-                        carregar_dados.clear()
-                        st.rerun()
-                    else:
-                        st.error("O projeto não foi encontrado para exclusão. Pode já ter sido removido.")
+                    baseline_str = st.text_input("Baseline (

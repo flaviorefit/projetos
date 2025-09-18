@@ -266,8 +266,7 @@ if aba == "Dashboard":
         for col, (titulo, valor, cor) in zip([card_col1, card_col2, card_col3, card_col4], cards):
             col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
 
-        st.markdown("  
-", unsafe_allow_html=True)
+        st.markdown("", unsafe_allow_html=True)
         card_col5, card_col6, card_col7 = st.columns(3)
         
         cards_financeiro = [
@@ -279,8 +278,7 @@ if aba == "Dashboard":
         for col, (titulo, valor, cor) in zip([card_col5, card_col6, card_col7], cards_financeiro):
             col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
         
-        st.markdown("  
-", unsafe_allow_html=True)
+        st.markdown("", unsafe_allow_html=True)
         
         col_graf1, col_graf2 = st.columns(2)
         with col_graf1:
@@ -500,3 +498,4 @@ elif aba == "Editar/Excluir":
                 if linha_base:
                     baseline_val = projeto_existente.get("Baseline", 0.0)
                     baseline_str = st.text_input("Baseline (
+

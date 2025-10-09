@@ -144,7 +144,7 @@ if not st.session_state["login_realizado"]:
     with col2:
         st.markdown("<h1 style='text-align: center; color: #002776;'>Sistema de Projetos</h1>", unsafe_allow_html=True)
         try:
-            st.image(Image.open("Imagem_adm.png"), width=200)
+            st.image(Image.open("Imagem_adm.png"), width=100)
         except:
             st.warning("Imagem 'Imagem_adm.png' não encontrada.")
         
@@ -408,6 +408,7 @@ else:
                         projetos_col.update_one({"ID_Projeto": id_selecionado}, {"$set": update_data})
                         st.success(f"Projeto {id_selecionado} atualizado com sucesso!")
                         st.rerun()
+
 
 
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Sistema de Projetos - Streamlit (Versão Final Completa)
+Sistema de Projetos - Streamlit (Versão Final Corrigida)
 @author: flavio.ribeiro
 """
 
@@ -211,16 +211,24 @@ else:
     if aba == "Dashboard":
         st.markdown("<h2 style='font-size: 28px; text-align: center;'>📊 Dashboard de Projetos</h2>", unsafe_allow_html=True)
 
+        # --- Bloco de Cálculo Corrigido ---
         if not df_filtrado.empty and "Status" in df_filtrado.columns:
             status_counts = df_filtrado["Status"].value_counts()
             qtd_total = len(df_filtrado)
             qtd_concluidos = status_counts.get("Concluído", 0)
             qtd_em_andamento = status_counts.get("Em andamento", 0)
             qtd_cancelados = status_counts.get("Cancelado", 0)
-            soma_valor_total = df_filtrado['Preco_Final'].sum() + df_filtrado['Melhor_Proposta'].sum()
-            soma_total_ce = df_filtrado['Saving_R$'].sum() + df_filtrado['CE_R$'].sum() + df_filtrado['CE_Baseline_R$'].sum()
+            
+            # GARANTE que as colunas são numéricas antes de somar
+            soma_valor_total = pd.to_numeric(df_filtrado['Preco_Final'], errors='coerce').sum() + \
+                               pd.to_numeric(df_filtrado['Melhor_Proposta'], errors='coerce').sum()
+            
+            soma_total_ce = pd.to_numeric(df_filtrado['Saving_R$'], errors='coerce').sum() + \
+                            pd.to_numeric(df_filtrado['CE_R$'], errors='coerce').sum() + \
+                            pd.to_numeric(df_filtrado['CE_Baseline_R$'], errors='coerce').sum()
         else:
             qtd_total = qtd_concluidos = qtd_em_andamento = qtd_cancelados = soma_valor_total = soma_total_ce = 0
+            
         card_cols = st.columns(6)
         cards = [("Qtd Total", qtd_total, "#002776"), ("Cancelados", qtd_cancelados, "#D90429"), ("Concluídos", qtd_concluidos, "#2B9348"), ("Em Andamento", qtd_em_andamento, "#F2C94C"), ("Valor Total", format_valor_kpi(soma_valor_total), "#17a2b8"), ("Total C.E.", format_valor_kpi(soma_total_ce), "#17a2b8")]
         for col, (titulo, valor, cor) in zip(card_cols, cards):
@@ -327,7 +335,6 @@ else:
         st.header("Atualizar Projeto Existente")
         projetos_col = get_mongo_collection("collection_projetos")
         if projetos_col is not None:
-            # Ordena a lista de IDs para melhor usabilidade
             lista_ids = sorted([p["ID_Projeto"] for p in projetos_col.find({}, {"ID_Projeto": 1})], reverse=True)
             lista_projetos = [""] + lista_ids
         else:
@@ -338,15 +345,13 @@ else:
             projeto = projetos_col.find_one({"ID_Projeto": id_selecionado})
             if projeto:
                 with st.form("form_atualizar"):
-                    st.markdown("#### Dados Gerais do Projeto")
-                    # ... (Formulário de atualização completo)
-                    st.markdown("---")
                     st.markdown("##### Opções de Orçamento")
                     col_b_ext, col_bl_ext, _ = st.columns([1,1,2])
                     tem_budget_upd = col_b_ext.checkbox("Tem Budget", value=bool(projeto.get("Tem_Budget")))
                     tem_baseline_upd = col_bl_ext.checkbox("Tem Baseline", value=bool(projeto.get("Tem_Baseline")))
                     st.markdown("---")
                     
+                    st.markdown("#### Dados Gerais do Projeto")
                     col1, col2 = st.columns(2)
                     id_contrato = col1.text_input("Id_Contrato", value=projeto.get("Id_Contrato", ""))
                     requisicao = col2.text_input("Requisição", value=projeto.get("Requisicao", ""))
@@ -359,6 +364,7 @@ else:
                     link_arquivos = st.text_input("Link dos Arquivos", value=projeto.get("Link_dos_Arquivos", ""))
                     status_idx = status_options.index(projeto.get("Status", "")) if projeto.get("Status") in status_options else 0
                     status = st.selectbox("Status", status_options, index=status_idx)
+                    
                     st.markdown("---")
                     st.markdown("#### Cronograma")
                     c_data1, c_data2 = st.columns(2)

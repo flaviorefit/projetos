@@ -268,9 +268,16 @@ else:
             fig.update_yaxes(categoryorder='total ascending')
             
             hoje_str = pd.Timestamp.now().strftime('%Y-%m-%d')
-            fig.add_vline(x=hoje_str, line_width=2, line_dash="dash", line_color="grey", annotation_text="Hoje")
+            fig.add_vline(x=hoje_str, line_width=2, line_dash="dash", line_color="grey")
 
-            fig.update_traces(hovertemplate="<br>".join(["<b>%{y}</b>", "<b>Status:</b> %{customdata[2]}", "<b>Responsável:</b> %{customdata[0]}", "<b>Início:</b> %{base|%d/%m/%Y}", "<b>Fim:</b> %{x[1]|%d/%m/%Y}", "<extra></extra>"]))
+            fig.add_annotation(
+            x=hoje_str,
+            y=1, # Posiciona no topo do gráfico
+            yref="paper", # A referência de 'y' é a área do gráfico (0=baixo, 1=topo)
+            text="Hoje",
+            showarrow=False, # Não mostrar uma seta apontando para a linha
+            yshift=10, # Desloca o texto um pouco para cima para não ficar colado na borda
+            font=dict(color="grey"))
             st.plotly_chart(fig, use_container_width=True)
             
         st.subheader("Tabela de Dados")
@@ -401,3 +408,4 @@ else:
                         projetos_col.update_one({"ID_Projeto": id_selecionado}, {"$set": update_data})
                         st.success(f"Projeto {id_selecionado} atualizado com sucesso!")
                         st.rerun()
+

@@ -144,7 +144,7 @@ if not st.session_state["login_realizado"]:
     with col2:
         st.markdown("<h1 style='text-align: center; color: #002776;'>Sistema de Projetos</h1>", unsafe_allow_html=True)
         try:
-            st.image(Image.open("Imagem_adm.png"))
+            st.image(Image.open("Imagem_adm.png"), width=200)
         except:
             st.warning("Imagem 'Imagem_adm.png' não encontrada.")
         
@@ -180,9 +180,9 @@ else:
     </style>
     """, unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns([1, 1, 1])
+    c1, c2, c3 = st.columns([1, 6, 2])
     with c1:
-        try: c1.image(Image.open("Imagem_adm.png"), width=50)
+        try: c1.image(Image.open("Imagem_adm.png"), width=100)
         except: pass
     c2.markdown("<h1 style='color:#002776; text-align:center;font-size:38px; font-weight:bold;'>Monitoramento de Projetos</h1>", unsafe_allow_html=True)
     c3.markdown(f"**👤 Usuário:** {st.session_state.usuario_logado}")
@@ -408,6 +408,7 @@ else:
                         projetos_col.update_one({"ID_Projeto": id_selecionado}, {"$set": update_data})
                         st.success(f"Projeto {id_selecionado} atualizado com sucesso!")
                         st.rerun()
+
 
 
 

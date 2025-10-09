@@ -160,7 +160,6 @@ if not st.session_state["login_realizado"]:
                 st.error("Usuário ou senha inválidos.")
 # --- APLICAÇÃO PRINCIPAL ---
 else:
-    # Apenas verifica se a conexão é possível.
     with st.spinner("Conectando ao banco de dados..."):
         if get_mongo_collection("collection_projetos") is None:
             st.sidebar.error("❌ Falha na conexão")
@@ -168,14 +167,11 @@ else:
         else:
             st.sidebar.success("✅ Conectado")
 
-    # Carrega os dados
     df = carregar_dados()
     
-    # Listas auxiliares
     status_options = ["Á Iniciar","Em andamento","Atrasado","Concluído","Stand By","Cancelado"]
     empresas_options = ["Postos Gulf","Alpha Matrix","Am Gestao Filz","Am Gestao Mtz","Bcag Sp 0002","Carneiros Go","Carinthia Rj 01","Carinthia Rj 03","Churchill","Clio","Direcional Es","Direcional Fil","Direcional Mt","Direcional Sp","Estrela","Fatro","Fair Energy","Fera Rj","Fera Sp","Fit Marine","Fit Marine Filial","Fit Marine Matriz","Fitfiber","Flagler Go","Flagler Rj","Flagler Sp","Gooil Hub","Gooil","Logfit Filial Aruja","Logfit Filial Caxias","Logfit Filial Rj","Logfit Rj 0002","Logfit Rj 0004","Logfit Sp 0001","Logfit Sp 0006","Logfit Tms Filial","Magro Adv Fil","Magro Adv Matriz","Manguinhos Fil","Manguinhos Filial","Manguinhos Matriz","Manguinhos Mtz","Maximus To","Ornes Gestao","Paradise Td 0001","Petro Go 0006","Petro Rj 0006","Petro Rj 0007","Petro To 0001","Petro To 0004","Port Brazil","Refit Filial Alagoas","Refit Filial Amapa","Refit Matriz","Renomeada 57","Renomeada 61","Renomeada 62","Renomeada 65","Renomeada 66","Roar Fl 0003","Roar Rj 0004","Roar Matriz","Rodopetro Cn","Rodopetro Mtz","Rodopetro Rj Dc","Tiger Matriz","Tig","Uma Cidadania","Valsinha","Vascam","Xyz Sp","Yield Filial","Yield Matriz"]
 
-    # --- SIDEBAR E LAYOUT ---
     st.markdown("""
     <style>
     [data-testid="stSidebar"] { background-color: #002776; }
@@ -212,7 +208,6 @@ else:
 
     df_filtrado = filtrar_df(df, status_fil, area_fil, resp_fil, cat_fil, desc_fil)
 
-    # --- RENDERIZAÇÃO DAS ABAS ---
     if aba == "Dashboard":
         st.markdown("<h2 style='font-size: 28px; text-align: center;'>📊 Dashboard de Projetos</h2>", unsafe_allow_html=True)
 
@@ -226,10 +221,9 @@ else:
             soma_total_ce = df_filtrado['Saving_R$'].sum() + df_filtrado['CE_R$'].sum() + df_filtrado['CE_Baseline_R$'].sum()
         else:
             qtd_total = qtd_concluidos = qtd_em_andamento = qtd_cancelados = soma_valor_total = soma_total_ce = 0
-
-        card_col1, card_col2, card_col3, card_col4, card_col5, card_col6 = st.columns(6)
+        card_cols = st.columns(6)
         cards = [("Qtd Total", qtd_total, "#002776"), ("Cancelados", qtd_cancelados, "#D90429"), ("Concluídos", qtd_concluidos, "#2B9348"), ("Em Andamento", qtd_em_andamento, "#F2C94C"), ("Valor Total", format_valor_kpi(soma_valor_total), "#17a2b8"), ("Total C.E.", format_valor_kpi(soma_total_ce), "#17a2b8")]
-        for col, (titulo, valor, cor) in zip([card_col1, card_col2, card_col3, card_col4, card_col5, card_col6], cards):
+        for col, (titulo, valor, cor) in zip(card_cols, cards):
             col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
 
         st.markdown("<hr>", unsafe_allow_html=True)
@@ -264,7 +258,10 @@ else:
             df_gantt = df_gantt.sort_values(by='Data_Inicio')
             fig = px.timeline(df_gantt, x_start="Data_Inicio", x_end="Data_Termino", y="Atividades_Descricao", color="Status", color_discrete_map=mapa_de_cores, title="Linha do Tempo dos Projetos (Gráfico de Gantt)", hover_data=["Responsavel", "Atividades_Descricao", "Status"])
             fig.update_yaxes(categoryorder='total ascending')
-            fig.add_vline(x=pd.Timestamp.now(), line_width=2, line_dash="dash", line_color="grey", annotation_text="Hoje")
+            
+            hoje_str = pd.Timestamp.now().strftime('%Y-%m-%d')
+            fig.add_vline(x=hoje_str, line_width=2, line_dash="dash", line_color="grey", annotation_text="Hoje")
+
             fig.update_traces(hovertemplate="<br>".join(["<b>%{y}</b>", "<b>Status:</b> %{customdata[2]}", "<b>Responsável:</b> %{customdata[0]}", "<b>Início:</b> %{base|%d/%m/%Y}", "<b>Fim:</b> %{x[1]|%d/%m/%Y}", "<extra></extra>"]))
             st.plotly_chart(fig, use_container_width=True)
             
@@ -328,22 +325,28 @@ else:
 
     elif aba == "Atualizar Projeto":
         st.header("Atualizar Projeto Existente")
-        # Garante que a coleção está disponível nesta aba
         projetos_col = get_mongo_collection("collection_projetos")
-        lista_projetos = [""] + [p["ID_Projeto"] for p in projetos_col.find({}, {"ID_Projeto": 1})] if projetos_col else [""]
+        if projetos_col is not None:
+            # Ordena a lista de IDs para melhor usabilidade
+            lista_ids = sorted([p["ID_Projeto"] for p in projetos_col.find({}, {"ID_Projeto": 1})], reverse=True)
+            lista_projetos = [""] + lista_ids
+        else:
+            lista_projetos = [""]
 
         id_selecionado = st.selectbox("Selecione o Projeto", lista_projetos)
         if id_selecionado:
             projeto = projetos_col.find_one({"ID_Projeto": id_selecionado})
             if projeto:
-                st.markdown("---")
-                st.markdown("##### Opções de Orçamento")
-                col_b_ext, col_bl_ext, _ = st.columns([1,1,2])
-                tem_budget_upd = col_b_ext.checkbox("Tem Budget", value=bool(projeto.get("Tem_Budget")))
-                tem_baseline_upd = col_bl_ext.checkbox("Tem Baseline", value=bool(projeto.get("Tem_Baseline")))
-                st.markdown("---")
                 with st.form("form_atualizar"):
                     st.markdown("#### Dados Gerais do Projeto")
+                    # ... (Formulário de atualização completo)
+                    st.markdown("---")
+                    st.markdown("##### Opções de Orçamento")
+                    col_b_ext, col_bl_ext, _ = st.columns([1,1,2])
+                    tem_budget_upd = col_b_ext.checkbox("Tem Budget", value=bool(projeto.get("Tem_Budget")))
+                    tem_baseline_upd = col_bl_ext.checkbox("Tem Baseline", value=bool(projeto.get("Tem_Baseline")))
+                    st.markdown("---")
+                    
                     col1, col2 = st.columns(2)
                     id_contrato = col1.text_input("Id_Contrato", value=projeto.get("Id_Contrato", ""))
                     requisicao = col2.text_input("Requisição", value=projeto.get("Requisicao", ""))
@@ -361,6 +364,7 @@ else:
                     c_data1, c_data2 = st.columns(2)
                     data_inicio = c_data1.date_input("Data de Início", value=pd.to_datetime(projeto.get("Data_Inicio", datetime.today())), format="DD/MM/YYYY")
                     data_termino = c_data2.date_input("Data de Término", value=pd.to_datetime(projeto.get("Data_Termino", datetime.today())), format="DD/MM/YYYY")
+                    
                     if tem_budget_upd or tem_baseline_upd:
                         st.markdown("---")
                         st.markdown("#### Orçamento (Budget/Baseline)")
@@ -383,6 +387,7 @@ else:
                     kpi1.metric("Saving R$", formatar_moeda(resultados_kpis_upd["Saving_R$"]), f"{resultados_kpis_upd['Percent_Saving']:.2f}%")
                     kpi2.metric("CE Baseline R$", formatar_moeda(resultados_kpis_upd["CE_Baseline_R$"]), f"{resultados_kpis_upd['Percent_CE_Baseline']:.2f}%")
                     kpi3.metric("CE R$", formatar_moeda(resultados_kpis_upd["CE_R$"]), f"{resultados_kpis_upd['Percent_CE']:.2f}%")
+                    
                     submitted = st.form_submit_button("Atualizar Projeto")
                     if submitted:
                         update_data = {"Id_Contrato": id_contrato, "Requisicao": requisicao, "Area_Setor": area_setor, "Categoria": categoria, "Empresa": empresa, "Responsavel": responsavel, "Atividades_Descricao": descricao, "Link_dos_Arquivos": link_arquivos, "Status": status, "Tem_Budget": tem_budget_upd, "Tem_Baseline": tem_baseline_upd, "Budget": budget, "Baseline": baseline, "Melhor_Proposta": melhor_proposta, "Preco_Inicial": preco_inicial, "Preco_Final": preco_final, "Data_Inicio": pd.to_datetime(data_inicio), "Data_Termino": pd.to_datetime(data_termino)}

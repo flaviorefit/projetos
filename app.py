@@ -146,7 +146,7 @@ if not st.session_state["login_realizado"]:
         try:
             st.image(Image.open("Imagem_adm.png"))
         except:
-            st.warning("Imagem 'Imagem_gulf.png' não encontrada.")
+            st.warning("Imagem 'Imagem_adm.png' não encontrada.")
         
         username = st.text_input("Usuário", key="login_user")
         password = st.text_input("Senha", type="password", key="login_pass")
@@ -182,7 +182,7 @@ else:
 
     c1, c2, c3 = st.columns([1, 6, 2])
     with c1:
-        try: c1.image(Image.open("Imagem_gulf.png"), width=100)
+        try: c1.image(Image.open("Imagem_adm.png"), width=100)
         except: pass
     c2.markdown("<h1 style='color:#002776; text-align:center;font-size:38px; font-weight:bold;'>Monitoramento de Projetos</h1>", unsafe_allow_html=True)
     c3.markdown(f"**👤 Usuário:** {st.session_state.usuario_logado}")
@@ -408,5 +408,6 @@ else:
                         projetos_col.update_one({"ID_Projeto": id_selecionado}, {"$set": update_data})
                         st.success(f"Projeto {id_selecionado} atualizado com sucesso!")
                         st.rerun()
+
 
 

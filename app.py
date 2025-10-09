@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Sistema de Projetos - Streamlit (Versão Final Corrigida)
+Sistema de Projetos - Streamlit (Versão Final com Login Alinhado)
 @author: flavio.ribeiro
 """
 
@@ -140,13 +140,34 @@ if "usuario_logado" not in st.session_state:
 
 # --- TELA DE LOGIN ---
 if not st.session_state["login_realizado"]:
-    col1, col2, col3 = st.columns([1,1,1])
-    with col2:
-        st.markdown("<h1 style='text-align: center; color: #002776;'>Sistema de Projetos</h1>", unsafe_allow_html=True)
-        try:
-            st.image(Image.open("Imagem_adm.png"), width=100)
-        except:
-            st.warning("Imagem 'Imagem_adm.png' não encontrada.")
+    col1_ext, col2_ext, col3_ext = st.columns([1,1,1]) # Colunas externas para centralizar
+    with col2_ext: # Usamos col2_ext para centralizar o conteúdo
+        
+        # Criamos colunas INTERNAS para a imagem e o título
+        img_col, title_col = st.columns([0.4, 0.6]) # Proporções: 40% para imagem, 60% para título
+        
+        with img_col:
+            try:
+                st.image(Image.open("Imagem_adm.png"), width=150) # Tamanho da imagem
+            except FileNotFoundError:
+                st.warning("Imagem 'Imagem_adm.png' não encontrada.")
+        
+        with title_col:
+            # CSS para alinhar verticalmente o título com a imagem
+            st.markdown("""
+                <style>
+                .vertical-align {
+                    display: flex;
+                    align-items: center;
+                    height: 150px; /* Mesma altura ou um pouco mais que a imagem */
+                }
+                </style>
+                <div class="vertical-align">
+                    <h1 style='color: #002776;'>Sistema de Projetos</h1>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---") # Linha divisória
         
         username = st.text_input("Usuário", key="login_user")
         password = st.text_input("Senha", type="password", key="login_pass")
@@ -211,7 +232,6 @@ else:
     if aba == "Dashboard":
         st.markdown("<h2 style='font-size: 28px; text-align: center;'>📊 Dashboard de Projetos</h2>", unsafe_allow_html=True)
 
-        # --- Bloco de Cálculo Corrigido ---
         if not df_filtrado.empty and "Status" in df_filtrado.columns:
             status_counts = df_filtrado["Status"].value_counts()
             qtd_total = len(df_filtrado)
@@ -219,7 +239,6 @@ else:
             qtd_em_andamento = status_counts.get("Em andamento", 0)
             qtd_cancelados = status_counts.get("Cancelado", 0)
             
-            # GARANTE que as colunas são numéricas antes de somar
             soma_valor_total = pd.to_numeric(df_filtrado['Preco_Final'], errors='coerce').sum() + \
                                pd.to_numeric(df_filtrado['Melhor_Proposta'], errors='coerce').sum()
             
@@ -271,13 +290,14 @@ else:
             fig.add_vline(x=hoje_str, line_width=2, line_dash="dash", line_color="grey")
 
             fig.add_annotation(
-            x=hoje_str,
-            y=1, # Posiciona no topo do gráfico
-            yref="paper", # A referência de 'y' é a área do gráfico (0=baixo, 1=topo)
-            text="Hoje",
-            showarrow=False, # Não mostrar uma seta apontando para a linha
-            yshift=10, # Desloca o texto um pouco para cima para não ficar colado na borda
-            font=dict(color="grey"))
+                x=hoje_str,
+                y=1,
+                yref="paper",
+                text="Hoje",
+                showarrow=False,
+                yshift=10,
+                font=dict(color="grey")
+            )
             st.plotly_chart(fig, use_container_width=True)
             
         st.subheader("Tabela de Dados")
@@ -408,10 +428,3 @@ else:
                         projetos_col.update_one({"ID_Projeto": id_selecionado}, {"$set": update_data})
                         st.success(f"Projeto {id_selecionado} atualizado com sucesso!")
                         st.rerun()
-
-
-
-
-
-
-

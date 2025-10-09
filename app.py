@@ -142,30 +142,37 @@ else:
     # =======================
     # CONEXÃO MONGO
     # =======================
-    @st.cache_resource
-    def init_connection():
-        try:
-            connection_string = st.secrets["mongo"]["uri"]
-            client = MongoClient(connection_string, serverSelectionTimeoutMS=20000)
-            client.admin.command("ping")
-            return client
-        except Exception as e:
-            st.error(f"Erro ao conectar ao MongoDB: {e}")
-            return None
-
-    client = init_connection()
-
-    if client:
+@st.cache_resource
+def get_mongo_collection(collection_name):
+    """Função única para conectar e retornar uma coleção específica."""
+    try:
+        # Pega a string de conexão do secrets.toml
+        connection_string = st.secrets["mongo"]["uri"]
+        client = MongoClient(connection_string, serverSelectionTimeoutMS=20000)
+        
+        # Pega o nome do banco de dados do secrets.toml
         db_name = st.secrets["mongo"]["database"]
-        projetos_collection_name = st.secrets["mongo"]["collection_projetos"]
-        
         db = client[db_name]
-        projetos_col = db[projetos_collection_name]
         
-        st.sidebar.success("✅ Conectado")
-    else:
-        st.sidebar.error("❌ Falha na conexão")
-        st.stop()
+        # Retorna a coleção solicitada
+        return db[collection_name]
+
+    except Exception as e:
+        st.error(f"Erro ao conectar ao MongoDB: {e}")
+        return None
+
+# --- Como usar no seu script principal ---
+
+# Pega a coleção de projetos
+projetos_col = get_mongo_collection("collection_projetos")
+
+if projetos_col is not None:
+    st.sidebar.success("✅ Conectado")
+    # Agora você já pode usar 'projetos_col' diretamente
+    # Ex: df = pd.DataFrame(list(projetos_col.find()))
+else:
+    st.sidebar.error("❌ Falha na conexão")
+    st.stop()
 
     # =======================
     # CARREGAR DADOS

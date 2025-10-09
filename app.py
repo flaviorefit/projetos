@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Sistema de Projetos - Streamlit (Versão Final com Logout)
+Sistema de Projetos - Streamlit (Versão Final Completa)
 @author: flavio.ribeiro
 """
 
@@ -54,9 +54,13 @@ def get_mongo_collection(collection_key_name):
 
 # --- Funções de Manipulação e Carga de Dados ---
 @st.cache_data(ttl=10)
-def carregar_dados(collection):
+def carregar_dados():
     """Carrega os dados da coleção do MongoDB para um DataFrame."""
-    df = pd.DataFrame(list(collection.find()))
+    projetos_col = get_mongo_collection("collection_projetos")
+    if projetos_col is None:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(list(projetos_col.find()))
     if '_id' in df.columns: df.drop(columns=['_id'], inplace=True)
     if 'Link_dos_Arquivos' not in df.columns: df['Link_dos_Arquivos'] = ""
     colunas_numericas = ['Budget','Baseline','Melhor_Proposta','Preco_Inicial','Preco_Final','Saving_R$','Percent_Saving','CE_Baseline_R$','Percent_CE_Baseline','CE_R$','Percent_CE','Dias','Progresso_Percent']
@@ -78,10 +82,13 @@ def filtrar_df(df, status_fil, area_fil, resp_fil, cat_fil, desc_fil):
     if desc_fil and "Atividades_Descricao" in df_f.columns: df_f = df_f[df_f["Atividades_Descricao"].str.contains(desc_fil,case=False,na=False)]
     return df_f
 
-def gerar_novo_numero(collection):
+def gerar_novo_numero():
     """Gera um novo ID de projeto sequencial."""
-    if collection.count_documents({}) == 0: return 1
-    numeros = [int(doc["ID_Projeto"][4:]) for doc in collection.find({},{"ID_Projeto":1}) if str(doc.get("ID_Projeto","")).startswith("PROJ")]
+    projetos_col = get_mongo_collection("collection_projetos")
+    if projetos_col is None or projetos_col.count_documents({}) == 0: 
+        return 1
+    
+    numeros = [int(doc["ID_Projeto"][4:]) for doc in projetos_col.find({},{"ID_Projeto":1}) if str(doc.get("ID_Projeto","")).startswith("PROJ")]
     return max(numeros) + 1 if numeros else 1
 
 # --- Funções de Formatação e Cálculo ---
@@ -153,16 +160,18 @@ if not st.session_state["login_realizado"]:
                 st.error("Usuário ou senha inválidos.")
 # --- APLICAÇÃO PRINCIPAL ---
 else:
-    projetos_col = get_mongo_collection("collection_projetos")
-    
-    if projetos_col is None:
-        st.sidebar.error("❌ Falha na conexão")
-        st.stop()
-    else:
-        st.sidebar.success("✅ Conectado")
+    # Apenas verifica se a conexão é possível.
+    with st.spinner("Conectando ao banco de dados..."):
+        if get_mongo_collection("collection_projetos") is None:
+            st.sidebar.error("❌ Falha na conexão")
+            st.stop()
+        else:
+            st.sidebar.success("✅ Conectado")
 
-    df = carregar_dados(projetos_col)
+    # Carrega os dados
+    df = carregar_dados()
     
+    # Listas auxiliares
     status_options = ["Á Iniciar","Em andamento","Atrasado","Concluído","Stand By","Cancelado"]
     empresas_options = ["Postos Gulf","Alpha Matrix","Am Gestao Filz","Am Gestao Mtz","Bcag Sp 0002","Carneiros Go","Carinthia Rj 01","Carinthia Rj 03","Churchill","Clio","Direcional Es","Direcional Fil","Direcional Mt","Direcional Sp","Estrela","Fatro","Fair Energy","Fera Rj","Fera Sp","Fit Marine","Fit Marine Filial","Fit Marine Matriz","Fitfiber","Flagler Go","Flagler Rj","Flagler Sp","Gooil Hub","Gooil","Logfit Filial Aruja","Logfit Filial Caxias","Logfit Filial Rj","Logfit Rj 0002","Logfit Rj 0004","Logfit Sp 0001","Logfit Sp 0006","Logfit Tms Filial","Magro Adv Fil","Magro Adv Matriz","Manguinhos Fil","Manguinhos Filial","Manguinhos Matriz","Manguinhos Mtz","Maximus To","Ornes Gestao","Paradise Td 0001","Petro Go 0006","Petro Rj 0006","Petro Rj 0007","Petro To 0001","Petro To 0004","Port Brazil","Refit Filial Alagoas","Refit Filial Amapa","Refit Matriz","Renomeada 57","Renomeada 61","Renomeada 62","Renomeada 65","Renomeada 66","Roar Fl 0003","Roar Rj 0004","Roar Matriz","Rodopetro Cn","Rodopetro Mtz","Rodopetro Rj Dc","Tiger Matriz","Tig","Uma Cidadania","Valsinha","Vascam","Xyz Sp","Yield Filial","Yield Matriz"]
 
@@ -195,7 +204,6 @@ else:
             cat_fil = st.selectbox("Categoria", ["Todos"] + sorted(df["Categoria"].dropna().unique()), key="f_cat")
             desc_fil = st.text_input("Descrição (contém)", key="f_desc")
     
-    ## NOVO: Botão de Logout ##
     st.sidebar.write("---")
     if st.sidebar.button("Sair", use_container_width=True):
         st.session_state["login_realizado"] = False
@@ -206,8 +214,6 @@ else:
 
     # --- RENDERIZAÇÃO DAS ABAS ---
     if aba == "Dashboard":
-        # (O restante do código para as abas 'Dashboard', 'Cadastrar Projeto' e 'Atualizar Projeto' 
-        # continua aqui, sem alterações)
         st.markdown("<h2 style='font-size: 28px; text-align: center;'>📊 Dashboard de Projetos</h2>", unsafe_allow_html=True)
 
         if not df_filtrado.empty and "Status" in df_filtrado.columns:
@@ -235,7 +241,7 @@ else:
                 status_counts.columns = ['Status', 'Quantidade']
                 fig_status = px.bar(status_counts, x='Status', y='Quantidade', color='Status', color_discrete_sequence=paleta, text_auto=True, title='Quantidade de Projetos por Status')
                 fig_status.update_traces(textposition='outside')
-                max_val = status_counts['Quantidade'].max()
+                max_val = status_counts['Quantidade'].max() if not status_counts.empty else 1
                 fig_status.update_yaxes(tickmode='linear', dtick=1, range=[0, max_val * 1.15])
                 st.plotly_chart(fig_status, use_container_width=True)
 
@@ -244,7 +250,7 @@ else:
                 resp_counts.columns = ['Responsavel', 'Quantidade']
                 fig_resp = px.bar(resp_counts, x='Responsavel', y='Quantidade', color='Quantidade', color_continuous_scale='Blues', text_auto=True, title='Quantidade de Projetos por Responsável')
                 fig_resp.update_traces(textposition='outside')
-                max_val = resp_counts['Quantidade'].max()
+                max_val = resp_counts['Quantidade'].max() if not resp_counts.empty else 1
                 fig_resp.update_yaxes(tickmode='linear', dtick=1, range=[0, max_val * 1.15])
                 st.plotly_chart(fig_resp, use_container_width=True)
 
@@ -274,7 +280,7 @@ else:
         tem_baseline = col_bl_ext.checkbox("Tem Baseline")
         st.markdown("---")
         with st.form("form_cadastro", clear_on_submit=True):
-            novo_id = f"PROJ{gerar_novo_numero(projetos_col):03d}"
+            novo_id = f"PROJ{gerar_novo_numero():03d}"
             st.markdown(f"**ID do Projeto:** {novo_id}")
             col1, col2 = st.columns(2)
             id_contrato = col1.text_input("Id_Contrato")
@@ -313,6 +319,7 @@ else:
             data_termino = st.date_input("Data de Término", value=datetime.today(), format="DD/MM/YYYY")
             submitted = st.form_submit_button("Salvar Projeto")
             if submitted:
+                projetos_col = get_mongo_collection("collection_projetos")
                 projeto_dict = {"ID_Projeto": novo_id, "Id_Contrato": id_contrato, "Requisicao": requisicao, "Area_Setor": area_setor, "Categoria": categoria, "Empresa": empresa, "Responsavel": responsavel, "Atividades_Descricao": descricao, "Link_dos_Arquivos": link_arquivos, "Status": status, "Tem_Budget": tem_budget, "Tem_Baseline": tem_baseline, "Budget": budget, "Baseline": baseline, "Melhor_Proposta": melhor_proposta, "Preco_Inicial": preco_inicial, "Preco_Final": preco_final, "Data_Inicio": pd.to_datetime(data_inicio), "Data_Termino": pd.to_datetime(data_termino)}
                 projeto_dict.update(resultados_kpis)
                 projetos_col.insert_one(projeto_dict)
@@ -321,7 +328,10 @@ else:
 
     elif aba == "Atualizar Projeto":
         st.header("Atualizar Projeto Existente")
-        lista_projetos = [""] + df["ID_Projeto"].tolist() if not df.empty else [""]
+        # Garante que a coleção está disponível nesta aba
+        projetos_col = get_mongo_collection("collection_projetos")
+        lista_projetos = [""] + [p["ID_Projeto"] for p in projetos_col.find({}, {"ID_Projeto": 1})] if projetos_col else [""]
+
         id_selecionado = st.selectbox("Selecione o Projeto", lista_projetos)
         if id_selecionado:
             projeto = projetos_col.find_one({"ID_Projeto": id_selecionado})

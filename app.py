@@ -180,7 +180,7 @@ else:
     </style>
     """, unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns([1, 6, 2])
+    c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         try: c1.image(Image.open("Imagem_adm.png"), width=50)
         except: pass
@@ -408,6 +408,7 @@ else:
                         projetos_col.update_one({"ID_Projeto": id_selecionado}, {"$set": update_data})
                         st.success(f"Projeto {id_selecionado} atualizado com sucesso!")
                         st.rerun()
+
 
 
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Sistema de Projetos - Streamlit (Versão Final com Login Alinhado)
+Sistema de Projetos - Streamlit (Versão Final com Sintaxe Corrigida)
 @author: flavio.ribeiro
 """
 
@@ -140,26 +140,24 @@ if "usuario_logado" not in st.session_state:
 
 # --- TELA DE LOGIN ---
 if not st.session_state["login_realizado"]:
-    col1_ext, col2_ext, col3_ext = st.columns([1,1,1]) # Colunas externas para centralizar
-    with col2_ext: # Usamos col2_ext para centralizar o conteúdo
+    col1_ext, col2_ext, col3_ext = st.columns([1,1,1])
+    with col2_ext:
         
-        # Criamos colunas INTERNAS para a imagem e o título
-        img_col, title_col = st.columns([0.4, 0.6]) # Proporções: 40% para imagem, 60% para título
+        img_col, title_col = st.columns([0.4, 0.6])
         
         with img_col:
             try:
-                st.image(Image.open("Imagem_adm.png"), width=150) # Tamanho da imagem
+                st.image(Image.open("Imagem_adm.png"), width=150)
             except FileNotFoundError:
                 st.warning("Imagem 'Imagem_adm.png' não encontrada.")
         
         with title_col:
-            # CSS para alinhar verticalmente o título com a imagem
             st.markdown("""
                 <style>
                 .vertical-align {
                     display: flex;
                     align-items: center;
-                    height: 150px; /* Mesma altura ou um pouco mais que a imagem */
+                    height: 150px;
                 }
                 </style>
                 <div class="vertical-align">
@@ -167,18 +165,19 @@ if not st.session_state["login_realizado"]:
                 </div>
             """, unsafe_allow_html=True)
         
-        st.markdown("---") # Linha divisória
+        st.markdown("---")
         
         username = st.text_input("Usuário", key="login_user")
         password = st.text_input("Senha", type="password", key="login_pass")
         
         if st.button("Entrar", use_container_width=True):
-            if check_credentials(username, password):
-                st.session_state["login_realizado"] = True
-                st.session_state["usuario_logado"] = username
-                st.rerun()
-            else:
-                st.error("Usuário ou senha inválidos.")
+            with st.spinner("Verificando credenciais..."):
+                if check_credentials(username, password):
+                    st.session_state["login_realizado"] = True
+                    st.session_state["usuario_logado"] = username
+                    st.rerun()
+                else:
+                    st.error("Usuário ou senha inválidos.")
 # --- APLICAÇÃO PRINCIPAL ---
 else:
     with st.spinner("Conectando ao banco de dados..."):
@@ -205,6 +204,7 @@ else:
     with c1:
         try: c1.image(Image.open("Imagem_adm.png"), width=100)
         except: pass
+    
     c2.markdown("<h1 style='color:#002776; text-align:center;font-size:38px; font-weight:bold;'>Monitoramento de Projetos</h1>", unsafe_allow_html=True)
     c3.markdown(f"**👤 Usuário:** {st.session_state.usuario_logado}")
 
@@ -239,54 +239,59 @@ else:
             qtd_em_andamento = status_counts.get("Em andamento", 0)
             qtd_cancelados = status_counts.get("Cancelado", 0)
             
-            soma_valor_total = pd.to_numeric(df_filtrado['Preco_Final'], errors='coerce').sum() + \
-                               pd.to_numeric(df_filtrado['Melhor_Proposta'], errors='coerce').sum()
+            soma_valor_total = pd.to_numeric(df_filtrado["Preco_Final"], errors="coerce").sum() + \
+                               pd.to_numeric(df_filtrado["Melhor_Proposta"], errors="coerce").sum()
             
-            soma_total_ce = pd.to_numeric(df_filtrado['Saving_R$'], errors='coerce').sum() + \
-                            pd.to_numeric(df_filtrado['CE_R$'], errors='coerce').sum() + \
-                            pd.to_numeric(df_filtrado['CE_Baseline_R$'], errors='coerce').sum()
+            soma_total_ce = pd.to_numeric(df_filtrado["Saving_R$"], errors="coerce").sum() + \
+                            pd.to_numeric(df_filtrado["CE_R$"], errors="coerce").sum() + \
+                            pd.to_numeric(df_filtrado["CE_Baseline_R$"], errors="coerce").sum()
         else:
             qtd_total = qtd_concluidos = qtd_em_andamento = qtd_cancelados = soma_valor_total = soma_total_ce = 0
             
         card_cols = st.columns(6)
         cards = [("Qtd Total", qtd_total, "#002776"), ("Cancelados", qtd_cancelados, "#D90429"), ("Concluídos", qtd_concluidos, "#2B9348"), ("Em Andamento", qtd_em_andamento, "#F2C94C"), ("Valor Total", format_valor_kpi(soma_valor_total), "#17a2b8"), ("Total C.E.", format_valor_kpi(soma_total_ce), "#17a2b8")]
         for col, (titulo, valor, cor) in zip(card_cols, cards):
-            col.markdown(f'<div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;"><h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3><h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2></div>', unsafe_allow_html=True)
+            col.markdown(f"""
+            <div style="background-color:{cor};padding:20px;border-radius:15px;text-align:center;height:120px;display:flex;flex-direction:column;justify-content:center;">
+                <h3 style="color:white;margin:0 0 8px 0;font-size:16px;">{titulo}</h3>
+                <h2 style="color:white;margin:0;font-size:20px;font-weight:bold;">{valor}</h2>
+            </div>
+            """, unsafe_allow_html=True)
 
         st.markdown("<hr>", unsafe_allow_html=True)
 
         if not df_filtrado.empty:
             paleta = ['#F2C94C', '#2B9348', '#3596B5', '#9BAEBC', '#E74C3C', '#5D6D7E']
-            if 'Status' in df_filtrado and not df_filtrado['Status'].empty:
-                status_counts = df_filtrado['Status'].value_counts().reset_index()
-                status_counts.columns = ['Status', 'Quantidade']
-                fig_status = px.bar(status_counts, x='Status', y='Quantidade', color='Status', color_discrete_sequence=paleta, text_auto=True, title='Quantidade de Projetos por Status')
-                fig_status.update_traces(textposition='outside')
-                max_val = status_counts['Quantidade'].max() if not status_counts.empty else 1
-                fig_status.update_yaxes(tickmode='linear', dtick=1, range=[0, max_val * 1.15])
+            if "Status" in df_filtrado and not df_filtrado["Status"].empty:
+                status_counts = df_filtrado["Status"].value_counts().reset_index()
+                status_counts.columns = ["Status", "Quantidade"]
+                fig_status = px.bar(status_counts, x="Status", y="Quantidade", color="Status", color_discrete_sequence=paleta, text_auto=True, title="Quantidade de Projetos por Status")
+                fig_status.update_traces(textposition="outside")
+                max_val = status_counts["Quantidade"].max() if not status_counts.empty else 1
+                fig_status.update_yaxes(tickmode="linear", dtick=1, range=[0, max_val * 1.15])
                 st.plotly_chart(fig_status, use_container_width=True)
 
-            if 'Responsavel' in df_filtrado and not df_filtrado['Responsavel'].dropna().empty:
-                resp_counts = df_filtrado['Responsavel'].value_counts().reset_index()
-                resp_counts.columns = ['Responsavel', 'Quantidade']
-                fig_resp = px.bar(resp_counts, x='Responsavel', y='Quantidade', color='Quantidade', color_continuous_scale='Blues', text_auto=True, title='Quantidade de Projetos por Responsável')
-                fig_resp.update_traces(textposition='outside')
-                max_val = resp_counts['Quantidade'].max() if not resp_counts.empty else 1
-                fig_resp.update_yaxes(tickmode='linear', dtick=1, range=[0, max_val * 1.15])
+            if "Responsavel" in df_filtrado and not df_filtrado["Responsavel"].dropna().empty:
+                resp_counts = df_filtrado["Responsavel"].value_counts().reset_index()
+                resp_counts.columns = ["Responsavel", "Quantidade"]
+                fig_resp = px.bar(resp_counts, x="Responsavel", y="Quantidade", color="Quantidade", color_continuous_scale="Blues", text_auto=True, title="Quantidade de Projetos por Responsável")
+                fig_resp.update_traces(textposition="outside")
+                max_val = resp_counts["Quantidade"].max() if not resp_counts.empty else 1
+                fig_resp.update_yaxes(tickmode="linear", dtick=1, range=[0, max_val * 1.15])
                 st.plotly_chart(fig_resp, use_container_width=True)
 
         st.markdown("<hr>", unsafe_allow_html=True)
-        df_gantt = df_filtrado.dropna(subset=['Data_Inicio', 'Data_Termino']).copy()
+        df_gantt = df_filtrado.dropna(subset=["Data_Inicio", "Data_Termino"]).copy()
         
         if df_gantt.empty:
             st.info("Nenhum projeto com datas de início e término para exibir no cronograma.")
         else:
-            mapa_de_cores = {'Concluído': '#28B463', 'Em andamento': '#3498DB', 'Á Iniciar': '#F39C12', 'Atrasado': '#E74C3C', 'Cancelado': '#85929E', 'Stand By': '#5D6D7E'}
-            df_gantt = df_gantt.sort_values(by='Data_Inicio')
+            mapa_de_cores = {"Concluído": "#28B463", "Em andamento": "#3498DB", "Á Iniciar": "#F39C12", "Atrasado": "#E74C3C", "Cancelado": "#85929E", "Stand By": "#5D6D7E"}
+            df_gantt = df_gantt.sort_values(by="Data_Inicio")
             fig = px.timeline(df_gantt, x_start="Data_Inicio", x_end="Data_Termino", y="Atividades_Descricao", color="Status", color_discrete_map=mapa_de_cores, title="Linha do Tempo dos Projetos (Gráfico de Gantt)", hover_data=["Responsavel", "Atividades_Descricao", "Status"])
-            fig.update_yaxes(categoryorder='total ascending')
+            fig.update_yaxes(categoryorder="total ascending")
             
-            hoje_str = pd.Timestamp.now().strftime('%Y-%m-%d')
+            hoje_str = pd.Timestamp.now().strftime("%Y-%m-%d")
             fig.add_vline(x=hoje_str, line_width=2, line_dash="dash", line_color="grey")
 
             fig.add_annotation(

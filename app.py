@@ -19,19 +19,20 @@ import hashlib
 
 # --- Funções de Login e Autenticação ---
 def check_credentials(username, password):
-    """Verifica se o usuário e a senha correspondem aos dados em secrets.toml."""
+    """Verifica as credenciais e retorna a 'role' do usuário em caso de sucesso."""
     try:
         users = st.secrets["usuarios"]
-        for user_key in users:
-            user_data = users[user_key]
-            if user_data["username"] == username:
+        for user_info in users.values(): # Itera diretamente sobre os dados de cada usuário
+            if user_info.get("username") == username:
                 hashed_password = hashlib.sha256(password.encode()).hexdigest()
-                if hashed_password == user_data["password"]:
-                    return True
-        return False
+                if hashed_password == user_info.get("password"):
+                    # Sucesso! Retorna a 'role' encontrada.
+                    return user_info.get("role") 
+        # Retorna None se o usuário ou a senha estiverem incorretos.
+        return None
     except Exception as e:
         st.error(f"Erro ao verificar credenciais: {e}")
-        return False
+        return None
 
 # --- Funções de Conexão com o Banco de Dados ---
 @st.cache_resource
@@ -428,3 +429,4 @@ else:
                         projetos_col.update_one({"ID_Projeto": id_selecionado}, {"$set": update_data})
                         st.success(f"Projeto {id_selecionado} atualizado com sucesso!")
                         st.rerun()
+

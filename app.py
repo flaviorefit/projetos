@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Sistema de Projetos - Streamlit (Versão sem Autenticação)
+Sistema de Projetos - Streamlit (Versão de Acesso Direto, sem Login)
 @author: flavio.ribeiro
 """
 
@@ -11,7 +11,6 @@ from datetime import datetime
 import plotly.express as px
 from PIL import Image
 import io
-# A biblioteca hashlib não é mais necessária
 
 # =============================================================================
 # DEFINIÇÃO DE TODAS AS FUNÇÕES (SEÇÃO ÚNICA)
@@ -45,15 +44,15 @@ def carregar_dados():
         return pd.DataFrame()
 
     df = pd.DataFrame(list(projetos_col.find()))
-    if '_id' in df.columns: df.drop(columns=['_id'], inplace=True)
-    if 'Link_dos_Arquivos' not in df.columns: df['Link_dos_Arquivos'] = ""
-    colunas_numericas = ['Budget','Baseline','Melhor_Proposta','Preco_Inicial','Preco_Final','Saving_R$','Percent_Saving','CE_Baseline_R$','Percent_CE_Baseline','CE_R$','Percent_CE','Dias','Progresso_Percent']
+    if "_id" in df.columns: df.drop(columns=["_id"], inplace=True)
+    if "Link_dos_Arquivos" not in df.columns: df["Link_dos_Arquivos"] = ""
+    colunas_numericas = ["Budget","Baseline","Melhor_Proposta","Preco_Inicial","Preco_Final","Saving_R$","Percent_Saving","CE_Baseline_R$","Percent_CE_Baseline","CE_R$","Percent_CE","Dias","Progresso_Percent"]
     for col in colunas_numericas:
         if col in df.columns: 
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    colunas_data = ['Data_Inicio','Data_Termino']
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    colunas_data = ["Data_Inicio","Data_Termino"]
     for col in colunas_data:
-        if col in df.columns: df[col] = pd.to_datetime(df[col], errors='coerce')
+        if col in df.columns: df[col] = pd.to_datetime(df[col], errors="coerce")
     return df
 
 def filtrar_df(df, status_fil, area_fil, resp_fil, cat_fil, desc_fil):
@@ -86,10 +85,10 @@ def formatar_percentual(valor):
 
 def convert_df_to_excel(df):
     output = io.BytesIO()
-    for col in df.select_dtypes(include=['datetimetz']).columns:
+    for col in df.select_dtypes(include=["datetimetz"]).columns:
         df[col] = df[col].dt.tz_localize(None)
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Dados')
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Dados")
     return output.getvalue()
 
 def calcular_kpis_financeiros(tem_budget, tem_baseline, budget, baseline, melhor_proposta, preco_inicial, preco_final):
@@ -117,8 +116,7 @@ def format_valor_kpi(valor):
 
 st.set_page_config(page_title="Sistema de Projetos", layout="wide")
 
-# O bloco de código da TELA DE LOGIN foi removido. A execução começa aqui.
-
+# --- APLICAÇÃO PRINCIPAL ---
 with st.spinner("Conectando ao banco de dados..."):
     if get_mongo_collection("collection_projetos") is None:
         st.sidebar.error("❌ Falha na conexão")
@@ -143,10 +141,8 @@ c1, c2, c3 = st.columns([1, 6, 2])
 with c1:
     try: c1.image(Image.open("Imagem_adm.png"), width=100)
     except: pass
-
 c2.markdown("<h1 style='color:#002776; text-align:center;font-size:38px; font-weight:bold;'>Monitoramento de Projetos</h1>", unsafe_allow_html=True)
-# A exibição do usuário foi removida pois não há mais login
-c3.markdown(f"**Data:** {datetime.now().strftime('%d/%m/%Y')}")
+c3.markdown(f"**Data:** {datetime.now().strftime('%d/%m/%Y')}") # Exibe a data atual
 
 aba = st.sidebar.radio("Escolha uma opção:",["Dashboard","Cadastrar Projeto","Atualizar Projeto"])
 
@@ -160,8 +156,6 @@ with st.sidebar.expander("Filtros", expanded=True):
         resp_fil = st.selectbox("Responsável", ["Todos"] + sorted(df["Responsavel"].dropna().unique()), key="f_resp")
         cat_fil = st.selectbox("Categoria", ["Todos"] + sorted(df["Categoria"].dropna().unique()), key="f_cat")
         desc_fil = st.text_input("Descrição (contém)", key="f_desc")
-
-# O botão de Sair foi removido
 
 df_filtrado = filtrar_df(df, status_fil, area_fil, resp_fil, cat_fil, desc_fil)
 
